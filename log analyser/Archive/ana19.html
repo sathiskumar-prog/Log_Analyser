@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Log Performance Analyzer - Column Sorting</title>
+    <title>Log Performance Analyzer - Sorted</title>
     <style>
         body {
             font-family: 'Segoe UI', system-ui, sans-serif;
@@ -109,18 +109,6 @@
             font-size: 11px;
             text-transform: uppercase;
             border-bottom: 2px solid #e2e8f0;
-            cursor: pointer;
-            user-select: none;
-        }
-
-        th:hover {
-            color: #2563eb;
-            background: #f1f5f9;
-        }
-
-        th.active-sort {
-            color: #2563eb;
-            background: #eff6ff;
         }
 
         td {
@@ -197,13 +185,6 @@
             <input type="file" id="logFile" accept=".txt">
             <label>Min Step Duration >= <input type="number" id="minFilter" value="0" style="width:50px">s</label>
             <button class="btn btn-primary" onclick="processLog()">Analyze Log</button>
-            <div style="margin-left: 10px; font-size: 11px; color: #64748b;">
-                Sort by:
-                <select id="columnSort" onchange="renderView()">
-                    <option value="duration">Longest Duration First</option>
-                    <option value="time">Time (Chronological)</option>
-                </select>
-            </div>
             <button id="exportBtn" class="btn btn-export" onclick="downloadCSV()" disabled>Export Filtered CSV</button>
         </div>
 
@@ -262,25 +243,21 @@
 
         function renderView() {
             const min = parseFloat(document.getElementById('minFilter').value) || 0;
-            const sortMode = document.getElementById('columnSort').value;
             const area = document.getElementById('resultsArea');
             area.innerHTML = "";
             let filteredGrandTotal = 0;
 
+            // Prepare filtered and summarized domain data
             const displayData = finalData.map(d => {
-                const filteredSteps = d.steps.filter(s => s.duration >= min);
-
-                // Internal Sorting based on selection
-                if (sortMode === 'duration') {
-                    filteredSteps.sort((a, b) => b.duration - a.duration);
-                } else {
-                    filteredSteps.sort((a, b) => a.ts.localeCompare(b.ts));
-                }
+                const filteredSteps = d.steps
+                    .filter(s => s.duration >= min)
+                    .sort((a, b) => b.duration - a.duration);
 
                 const sumDuration = filteredSteps.reduce((acc, s) => acc + s.duration, 0);
                 return { ...d, filteredSteps, sumDuration };
             })
                 .filter(d => d.filteredSteps.length > 0)
+                // SORT DOMAINS: Longest Sum of Duration first
                 .sort((a, b) => b.sumDuration - a.sumDuration);
 
             displayData.forEach(d => {
@@ -296,13 +273,7 @@
                 </div>
                 <div class="content">
                     <table>
-                        <thead>
-                            <tr>
-                                <th class="${sortMode === 'time' ? 'active-sort' : ''}">Time ⇅</th>
-                                <th>Function Name</th>
-                                <th class="${sortMode === 'duration' ? 'active-sort' : ''}">Duration ⇅</th>
-                            </tr>
-                        </thead>
+                        <thead><tr><th>Time</th><th>Function Name</th><th>Duration</th></tr></thead>
                         <tbody>
                             ${d.filteredSteps.map(s => `
                                 <tr>
@@ -325,16 +296,11 @@
 
         function downloadCSV() {
             const min = parseFloat(document.getElementById('minFilter').value) || 0;
-            const sortMode = document.getElementById('columnSort').value;
             let csv = "Domain,Timestamp,Category,Function,Seconds,SumOfDurationMinutes\n";
 
+            // Re-generate the sorted display logic for the CSV
             const exportData = finalData.map(d => {
-                const filteredSteps = d.steps.filter(s => s.duration >= min);
-                if (sortMode === 'duration') {
-                    filteredSteps.sort((a, b) => b.duration - a.duration);
-                } else {
-                    filteredSteps.sort((a, b) => a.ts.localeCompare(b.ts));
-                }
+                const filteredSteps = d.steps.filter(s => s.duration >= min).sort((a, b) => b.duration - a.duration);
                 const sumDuration = filteredSteps.reduce((acc, s) => acc + s.duration, 0);
                 return { ...d, filteredSteps, sumDuration };
             })
@@ -352,7 +318,7 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `Log_Performance_${sortMode}_sorted.csv`;
+            a.download = `Performance_Summary_Sorted.csv`;
             a.click();
         }
     </script>

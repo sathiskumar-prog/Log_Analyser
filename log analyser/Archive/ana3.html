@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Log Analyzer: Domain & Function Timing</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+            --border: #e2e8f0;
+            --danger: #dc2626;
+            --success: #166534;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: var(--bg);
+            padding: 20px;
+            color: #1e293b;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: auto;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+
+        /* Header & Filters */
+        .controls {
+            display: flex;
+            gap: 20px;
+            align-items: flex-end;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        input[type="number"],
+        input[type="file"] {
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+
+        /* Domain Accordion */
+        .domain-item {
+            background: white;
+            border: 1px solid var(--border);
+            margin-bottom: 10px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .domain-header {
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            background: #fff;
+            transition: background 0.2s;
+        }
+
+        .domain-header:hover {
+            background: #f1f5f9;
+        }
+
+        .domain-header.active {
+            border-bottom: 1px solid var(--border);
+            background: #f1f5f9;
+        }
+
+        .domain-title {
+            font-weight: bold;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .badge {
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .badge-time {
+            background: #dcfce7;
+            color: var(--success);
+        }
+
+        .badge-count {
+            background: #e0e7ff;
+            color: #3730a3;
+        }
+
+        .chevron {
+            transition: transform 0.3s;
+            font-size: 0.8rem;
+        }
+
+        .active .chevron {
+            transform: rotate(90deg);
+        }
+
+        /* Table Area */
+        .domain-content {
+            display: none;
+            padding: 0;
+        }
+
+        .domain-content.show {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        th {
+            text-align: left;
+            padding: 12px 20px;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--border);
+            color: #64748b;
+        }
+
+        td {
+            padding: 10px 20px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .func-name {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: #db2777;
+        }
+
+        .highlight-slow {
+            background-color: #fef2f2;
+        }
+
+        .text-danger {
+            color: var(--danger);
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="card">
+            <h2 style="margin-top:0">📋 Activity Timing Analyzer</h2>
+            <div class="controls">
+                <div class="filter-group">
+                    <label>1. Select Log File</label>
+                    <input type="file" id="logInput" accept=".txt">
+                </div>
+                <div class="filter-group">
+                    <label>2. Filter Domain Duration (Min Minutes)</label>
+                    <input type="number" id="minMinutes" value="0" min="0" step="0.5" style="width: 100px;">
+                </div>
+                <button onclick="applyFilter()"
+                    style="padding: 10px 20px; cursor: pointer; background: var(--primary); color: white; border: none; border-radius: 6px;">Apply
+                    Filter</button>
+            </div>
+            <div id="summaryText" style="font-size: 0.9rem; color: #64748b;"></div>
+        </div>
+
+        <div id="resultsList"></div>
+    </div>
+
+    <script>
+        let allDomains = [];
+
+        document.getElementById('logInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = e => {
+                parseLogs(e.target.result);
+                applyFilter();
+            };
+            reader.readAsText(file);
+        });
+
+        function parseLogs(text) {
+            const lines = text.split('\n');
+            allDomains = [];
+            let currentDomain = null;
+            let lastTS = null;
+
+            const tsRegex = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})/;
+            const domainRegex = /Running transformation for (.+?)\s+\*/;
+            const functionRegex = /Column OTB Function\s*:\s*(\w+)/;
+
+            lines.forEach(line => {
+                const tsMatch = line.match(tsRegex);
+                if (!tsMatch) return;
+
+                const currentTime = new Date(tsMatch[1].replace(',', '.'));
+
+                // Domain Detection
+                const domainMatch = line.match(domainRegex);
+                if (domainMatch) {
+                    if (currentDomain) currentDomain.end = currentTime;
+                    currentDomain = {
+                        name: domainMatch[1].trim(),
+                        start: currentTime,
+                        functions: []
+                    };
+                    allDomains.push(currentDomain);
+                }
+
+                // OTB Function Detection
+                const funcMatch = line.match(functionRegex);
+                if (funcMatch && currentDomain) {
+                    const delta = lastTS ? (currentTime - lastTS) / 1000 : 0;
+                    currentDomain.functions.push({
+                        name: funcMatch[1],
+                        time: tsMatch[1].split(' ')[1],
+                        duration: delta
+                    });
+                }
+                lastTS = currentTime;
+            });
+
+            if (currentDomain) currentDomain.end = lastTS;
+        }
+
+        function applyFilter() {
+            const minMin = parseFloat(document.getElementById('minMinutes').value) || 0;
+            const container = document.getElementById('resultsList');
+            container.innerHTML = '';
+
+            let visibleCount = 0;
+
+            allDomains.forEach((d) => {
+                const totalSec = (d.end - d.start) / 1000;
+                const totalMin = totalSec / 60;
+
+                if (totalMin >= minMin) {
+                    visibleCount++;
+                    const item = document.createElement('div');
+                    item.className = 'domain-item';
+
+                    const tableRows = d.functions.map(f => `
+                    <tr class="${f.duration > 10 ? 'highlight-slow' : ''}">
+                        <td>${f.time}</td>
+                        <td class="func-name">${f.name}</td>
+                        <td class="${f.duration > 10 ? 'text-danger' : ''}">${f.duration.toFixed(2)}s</td>
+                    </tr>
+                `).join('');
+
+                    item.innerHTML = `
+                    <div class="domain-header" onclick="toggleAccordion(this)">
+                        <div class="domain-title">
+                            <span class="chevron">▶</span>
+                            <span>${d.name}</span>
+                            <span class="badge badge-time">${formatTime(totalSec)}</span>
+                        </div>
+                        <span class="badge badge-count">${d.functions.length} Functions</span>
+                    </div>
+                    <div class="domain-content">
+                        <table>
+                            <thead><tr><th>Time</th><th>OTB Function</th><th>Duration (Δ)</th></tr></thead>
+                            <tbody>${tableRows || '<tr><td colspan="3" style="text-align:center">No functions logged</td></tr>'}</tbody>
+                        </table>
+                    </div>
+                `;
+                    container.appendChild(item);
+                }
+            });
+
+            document.getElementById('summaryText').innerText = `Showing ${visibleCount} domains out of ${allDomains.length}`;
+        }
+
+        function toggleAccordion(header) {
+            header.classList.toggle('active');
+            const content = header.nextElementSibling;
+            content.classList.toggle('show');
+        }
+
+        function formatTime(s) {
+            if (s < 60) return s.toFixed(1) + 's';
+            const m = Math.floor(s / 60);
+            const rem = (s % 60).toFixed(0);
+            return `${m}m ${rem}s`;
+        }
+    </script>
+</body>
+
+</html>

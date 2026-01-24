@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Consolidated Log Analyzer</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: #f0f2f5;
+            padding: 20px;
+            font-size: 13px;
+        }
+
+        .wrap {
+            max-width: 900px;
+            margin: auto;
+            background: #fff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .ctrl {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .domain {
+            border: 1px solid #e2e8f0;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .dom-head {
+            padding: 10px 15px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            background: #fff;
+        }
+
+        .dom-head:hover {
+            background: #f1f5f9;
+        }
+
+        .content {
+            display: none;
+            padding: 0 15px 15px;
+            border-top: 1px solid #f1f5f9;
+        }
+
+        .show {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th {
+            text-align: left;
+            background: #f8fafc;
+            padding: 8px;
+            color: #64748b;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+
+        td {
+            padding: 8px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .lbl {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-right: 8px;
+            text-transform: uppercase;
+        }
+
+        .otb {
+            background: #fdf2f8;
+            color: #db2777;
+            border: 1px solid #fbcfe8;
+        }
+
+        .custom {
+            background: #f5f3ff;
+            color: #7c3aed;
+            border: 1px solid #ddd6fe;
+        }
+
+        .dur {
+            font-family: monospace;
+            font-weight: bold;
+        }
+
+        .slow {
+            color: #e11d48;
+            background: #fff1f2;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="wrap">
+        <h3>Log Execution Performance Summary</h3>
+        <div class="ctrl">
+            <input type="file" id="logFile" accept=".txt">
+            <label>Min Step (sec): <input type="number" id="minFilter" value="0" style="width:50px"></label>
+            <button onclick="runAnalysis()"
+                style="padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer;">Analyze
+                Log</button>
+        </div>
+        <div id="display"></div>
+    </div>
+
+    <script>
+        let processedData = [];
+
+        function runAnalysis() {
+            const file = document.getElementById('logFile').files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = e => {
+                const lines = e.target.result.split('\n');
+                processedData = [];
+                let currentDomain = null;
+                let pendingFunc = null;
+                let lastTS = null;
+
+                const reTS = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})/;
+                const reDom = /Running transformation for (.+?)\s+\*/;
+                const reOTB = /Column OTB Function\s*:\s*(\w+)/;
+                const reCus = /CUSTOM FUNCTION\s*-\s*(.+?)\s*-/;
+                const reOpTime = /operation execution time\s*:\s*([\d:]+)/i;
+
+                lines.forEach(line => {
+                    const tsMatch = line.match(reTS);
+                    if (!tsMatch) return;
+                    const currentTime = new Date(tsMatch[1].replace(',', '.'));
+
+                    // Domain detection
+                    const dMatch = line.match(reDom);
+                    if (dMatch) {
+                        if (currentDomain) currentDomain.end = currentTime;
+                        currentDomain = { name: dMatch[1].trim(), start: currentTime, steps: [] };
+                        processedData.push(currentDomain);
+                    }
+
+                    // Identify name but don't create a row yet
+                    const oMatch = line.match(reOTB);
+                    const cMatch = line.match(reCus);
+                    if (oMatch) pendingFunc = { name: oMatch[1], type: "OTB", ts: tsMatch[1].split(' ')[1] };
+                    if (cMatch) pendingFunc = { name: cMatch[1], type: "Custom Function", ts: tsMatch[1].split(' ')[1] };
+
+                    // Capture Timing
+                    const opMatch = line.match(reOpTime);
+                    if (currentDomain && pendingFunc) {
+                        let duration = -1;
+
+                        if (opMatch) {
+                            // Priority 1: Explicit operation time logged
+                            const p = opMatch[1].split(':');
+                            duration = (parseInt(p[0]) * 3600) + (parseInt(p[1]) * 60) + parseFloat(p[2]);
+                        } else if (oMatch || cMatch) {
+                            // Priority 2: Calculate delta if no explicit time follows immediately
+                            duration = lastTS ? (currentTime - lastTS) / 1000 : 0;
+                        }
+
+                        if (duration >= 0) {
+                            // Check if previous step was just the name-placeholder and update it, or add new
+                            const lastStep = currentDomain.steps[currentDomain.steps.length - 1];
+                            if (lastStep && lastStep.name === pendingFunc.name && lastStep.duration === 0 && opMatch) {
+                                lastStep.duration = duration;
+                            } else {
+                                currentDomain.steps.push({ ...pendingFunc, duration });
+                            }
+                            // Reset pending if we used explicit operation time
+                            if (opMatch) pendingFunc = null;
+                        }
+                    }
+                    lastTS = currentTime;
+                });
+                if (currentDomain) currentDomain.end = lastTS;
+                render();
+            };
+            reader.readAsText(file);
+        }
+
+        function render() {
+            const threshold = parseFloat(document.getElementById('minFilter').value) || 0;
+            const display = document.getElementById('display');
+            display.innerHTML = "";
+
+            processedData.forEach(d => {
+                const domainTotal = (d.end - d.start) / 1000;
+                // Filter steps and remove those that were just placeholders with 0 duration if others exist
+                const filteredSteps = d.steps.filter(s => s.duration >= threshold);
+
+                if (threshold > 0 && filteredSteps.length === 0) return;
+
+                const card = document.createElement('div');
+                card.className = 'domain';
+                card.innerHTML = `
+                <div class="dom-head" onclick="this.nextElementSibling.classList.toggle('show')">
+                    <span>📂 ${d.name}</span>
+                    <span style="color:#2563eb">${domainTotal.toFixed(1)}s</span>
+                </div>
+                <div class="content">
+                    <table>
+                        <tr><th>Time</th><th>Activity</th><th>Duration</th></tr>
+                        ${filteredSteps.map(s => `
+                            <tr>
+                                <td style="color:#64748b">${s.ts}</td>
+                                <td>
+                                    <span class="lbl ${s.type === 'OTB' ? 'otb' : 'custom'}">${s.type}</span>
+                                    <strong>${s.name}</strong>
+                                </td>
+                                <td class="dur ${s.duration > 10 ? 'slow' : ''}">${s.duration.toFixed(2)}s</td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                </div>`;
+                display.appendChild(card);
+            });
+        }
+    </script>
+</body>
+
+</html>

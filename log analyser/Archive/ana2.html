@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Log Timing Analyzer (Expandable)</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+            --border: #e2e8f0;
+            --slow: #fee2e2;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: var(--bg);
+            padding: 20px;
+            color: #1e293b;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: auto;
+        }
+
+        /* Upload Area */
+        .upload-box {
+            background: white;
+            border: 2px dashed var(--primary);
+            padding: 30px;
+            text-align: center;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .upload-box:hover {
+            background: #eff6ff;
+        }
+
+        /* Domain Accordion */
+        .domain-item {
+            background: white;
+            border: 1px solid var(--border);
+            margin-bottom: 10px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .domain-trigger {
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s;
+        }
+
+        .domain-trigger:hover {
+            background: #f1f5f9;
+        }
+
+        .domain-trigger.active {
+            border-bottom: 1px solid var(--border);
+            background: #f1f5f9;
+        }
+
+        .domain-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .domain-name {
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: var(--primary);
+        }
+
+        .domain-time {
+            background: #dcfce7;
+            color: #166534;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+        }
+
+        .chevron {
+            transition: transform 0.3s;
+            font-weight: bold;
+        }
+
+        .active .chevron {
+            transform: rotate(90deg);
+        }
+
+        /* Hidden Content */
+        .domain-content {
+            display: none;
+            padding: 0;
+        }
+
+        .domain-content.show {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        th {
+            text-align: left;
+            padding: 12px;
+            background: #f8fafc;
+            color: #64748b;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .func-name {
+            font-family: monospace;
+            font-weight: bold;
+            color: #db2777;
+        }
+
+        .slow-row {
+            background-color: var(--slow);
+        }
+
+        .stats-bar {
+            margin-bottom: 20px;
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div style="text-align:center; margin-bottom:30px;">
+            <h1>📋 Activity Timing Analyzer</h1>
+            <p>Click on any Domain to see OTB Function details</p>
+        </div>
+
+        <div class="upload-box" onclick="document.getElementById('fileInput').click()">
+            <strong>📁 Drop or Click to Upload Log File</strong>
+            <input type="file" id="fileInput" style="display:none" accept=".txt">
+        </div>
+
+        <div id="stats" class="stats-bar"></div>
+        <div id="resultsList"></div>
+    </div>
+
+    <script>
+        document.getElementById('fileInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = e => parseLogs(e.target.result);
+            reader.readAsText(file);
+        });
+
+        function parseLogs(text) {
+            const lines = text.split('\n');
+            const listContainer = document.getElementById('resultsList');
+            listContainer.innerHTML = '';
+
+            let domains = [];
+            let currentDomain = null;
+            let lastTimestamp = null;
+
+            const tsRegex = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})/;
+            const domainRegex = /Running transformation for (.+?)\s+\*/;
+            const functionRegex = /Column OTB Function\s*:\s*(\w+)/;
+
+            lines.forEach(line => {
+                const tsMatch = line.match(tsRegex);
+                if (!tsMatch) return;
+
+                const currentTime = new Date(tsMatch[1].replace(',', '.'));
+
+                const domainMatch = line.match(domainRegex);
+                if (domainMatch) {
+                    if (currentDomain) currentDomain.end = currentTime;
+                    currentDomain = {
+                        name: domainMatch[1].trim(),
+                        start: currentTime,
+                        functions: []
+                    };
+                    domains.push(currentDomain);
+                }
+
+                const funcMatch = line.match(functionRegex);
+                if (funcMatch && currentDomain) {
+                    const delta = lastTimestamp ? (currentTime - lastTimestamp) / 1000 : 0;
+                    currentDomain.functions.push({
+                        name: funcMatch[1],
+                        time: tsMatch[1].split(' ')[1],
+                        duration: delta
+                    });
+                }
+                lastTimestamp = currentTime;
+            });
+
+            if (currentDomain) currentDomain.end = lastTimestamp;
+            render(domains);
+        }
+
+        function render(domains) {
+            const listContainer = document.getElementById('resultsList');
+
+            domains.forEach((d, index) => {
+                const total = (d.end - d.start) / 1000;
+                const domainItem = document.createElement('div');
+                domainItem.className = 'domain-item';
+
+                const tableRows = d.functions.map(f => `
+                <tr class="${f.duration > 2 ? 'slow-row' : ''}">
+                    <td>${f.time}</td>
+                    <td class="func-name">${f.name}</td>
+                    <td><b>${f.duration.toFixed(3)}s</b></td>
+                </tr>
+            `).join('');
+
+                domainItem.innerHTML = `
+                <div class="domain-trigger" onclick="toggleDomain(this)">
+                    <div class="domain-info">
+                        <span class="chevron">▶</span>
+                        <span class="domain-name">${d.name}</span>
+                        <span class="domain-time">${formatTime(total)}</span>
+                    </div>
+                    <div style="font-size: 0.8rem; color: #94a3b8;">
+                        ${d.functions.length} OTB Functions
+                    </div>
+                </div>
+                <div class="domain-content">
+                    <table>
+                        <thead>
+                            <tr><th>Timestamp</th><th>OTB Function</th><th>Step Duration</th></tr>
+                        </thead>
+                        <tbody>${tableRows || '<tr><td colspan="3">No functions tracked.</td></tr>'}</tbody>
+                    </table>
+                </div>
+            `;
+                listContainer.appendChild(domainItem);
+            });
+        }
+
+        function toggleDomain(element) {
+            element.classList.toggle('active');
+            const content = element.nextElementSibling;
+            content.classList.toggle('show');
+        }
+
+        function formatTime(s) {
+            const m = Math.floor(s / 60);
+            const sec = (s % 60).toFixed(1);
+            return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+        }
+    </script>
+</body>
+
+</html>

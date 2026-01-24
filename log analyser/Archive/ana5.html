@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Log Analyzer: Domain & Activity Filter</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+            --border: #e2e8f0;
+            --custom: #7c3aed;
+            /* Purple for Custom */
+            --otb: #db2777;
+            /* Pink for OTB */
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            padding: 20px;
+            color: #1e293b;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: auto;
+        }
+
+        /* Control Panel */
+        .controls {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            display: flex;
+            gap: 20px;
+            align-items: flex-end;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        input {
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+
+        /* Domain Item */
+        .domain-item {
+            background: white;
+            border: 1px solid var(--border);
+            margin-bottom: 10px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .domain-header {
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .domain-header:hover {
+            background: #f1f5f9;
+        }
+
+        .domain-header.active {
+            background: #f1f5f9;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .domain-title {
+            font-weight: bold;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .badge {
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        /* Details Table */
+        .domain-content {
+            display: none;
+        }
+
+        .domain-content.show {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        th {
+            text-align: left;
+            padding: 12px 20px;
+            background: #f8fafc;
+            color: #64748b;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 10px 20px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .tag {
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-right: 8px;
+        }
+
+        .tag-custom {
+            background: #f5f3ff;
+            color: var(--custom);
+            border: 1px solid #ddd6fe;
+        }
+
+        .tag-otb {
+            background: #fdf2f8;
+            color: var(--otb);
+            border: 1px solid #fbcfe8;
+        }
+
+        .slow {
+            color: #dc2626;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="controls">
+            <div class="control-group">
+                <label>1. Upload Log File</label>
+                <input type="file" id="logInput" accept=".txt">
+            </div>
+            <div class="control-group">
+                <label>2. Min Activity Duration (Minutes)</label>
+                <input type="number" id="minFilter" value="0" min="0" step="0.1" style="width: 100px;">
+            </div>
+            <button onclick="applyFilter()"
+                style="padding: 9px 20px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer;">Filter
+                Activities</button>
+        </div>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        let rawDomains = [];
+
+        document.getElementById('logInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                parseLogs(e.target.result);
+                applyFilter();
+            };
+            reader.readAsText(file);
+        });
+
+        function parseLogs(text) {
+            const lines = text.split('\n');
+            rawDomains = [];
+            let current = null;
+            let lastTS = null;
+
+            const tsRegex = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})/;
+            const domainRegex = /Running transformation for (.+?)\s+\*/;
+            const otbRegex = /Column OTB Function\s*:\s*(\w+)/;
+            const customRegex = /CUSTOM FUNCTION\s*-\s*(.+?)\s*-/;
+
+            lines.forEach(line => {
+                const tsMatch = line.match(tsRegex);
+                if (!tsMatch) return;
+
+                const time = new Date(tsMatch[1].replace(',', '.'));
+                const domainMatch = line.match(domainRegex);
+
+                if (domainMatch) {
+                    if (current) current.end = time;
+                    current = { name: domainMatch[1].trim(), start: time, steps: [] };
+                    rawDomains.push(current);
+                }
+
+                const cMatch = line.match(customRegex);
+                const oMatch = line.match(otbRegex);
+
+                if ((cMatch || oMatch) && current) {
+                    const dur = lastTS ? (time - lastTS) / 60000 : 0; // Convert to minutes
+                    current.steps.push({
+                        name: (cMatch ? cMatch[1] : oMatch[1]).trim(),
+                        type: cMatch ? 'Custom' : 'OTB',
+                        time: tsMatch[1].split(' ')[1],
+                        duration: dur
+                    });
+                }
+                lastTS = time;
+            });
+            if (current) current.end = lastTS;
+        }
+
+        function applyFilter() {
+            const threshold = parseFloat(document.getElementById('minFilter').value) || 0;
+            const container = document.getElementById('results');
+            container.innerHTML = '';
+
+            rawDomains.forEach(d => {
+                const filteredSteps = d.steps.filter(s => s.duration >= threshold);
+                if (filteredSteps.length === 0 && threshold > 0) return;
+
+                const totalMin = (d.end - d.start) / 60000;
+                const div = document.createElement('div');
+                div.className = 'domain-item';
+
+                const rows = filteredSteps.map(s => `
+                <tr>
+                    <td>${s.time}</td>
+                    <td><span class="tag tag-${s.type.toLowerCase()}">${s.type}</span> <b>${s.name}</b></td>
+                    <td class="${s.duration > 1 ? 'slow' : ''}">${s.duration.toFixed(3)} min</td>
+                </tr>
+            `).join('');
+
+                div.innerHTML = `
+                <div class="domain-header" onclick="this.classList.toggle('active'); this.nextElementSibling.classList.toggle('show')">
+                    <div class="domain-title">▶ ${d.name} <span class="badge">${totalMin.toFixed(2)}m total</span></div>
+                    <div style="font-size:0.8rem; color:#64748b;">${filteredSteps.length} activities shown</div>
+                </div>
+                <div class="domain-content">
+                    <table>
+                        <thead><tr><th>Timestamp</th><th>Function</th><th>Duration</th></tr></thead>
+                        <tbody>${rows || '<tr><td colspan="3" style="text-align:center">No activities match the filter.</td></tr>'}</tbody>
+                    </table>
+                </div>
+            `;
+                container.appendChild(div);
+            });
+        }
+    </script>
+</body>
+
+</html>

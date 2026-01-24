@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Log Performance Summary Dashboard</title>
+    <style>
+        :root {
+            --primary: #0f172a;
+            --accent: #2563eb;
+            --danger: #e11d48;
+            --success: #10b981;
+            --bg: #f8fafc;
+            --border: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--primary);
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: auto;
+        }
+
+        /* Dashboard Cards */
+        .card {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .stat-box {
+            padding: 16px;
+            border-radius: 8px;
+            background: #f1f5f9;
+            border: 1px solid var(--border);
+        }
+
+        .stat-val {
+            display: block;
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: var(--accent);
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: #64748b;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        /* Summary List */
+        .highlight-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .highlight-item:last-child {
+            border: none;
+        }
+
+        .slow-tag {
+            background: #fff1f2;
+            color: var(--danger);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 0.85rem;
+        }
+
+        /* Accordion */
+        .domain-row {
+            cursor: pointer;
+            border: 1px solid var(--border);
+            margin-bottom: 8px;
+            border-radius: 8px;
+            background: white;
+        }
+
+        .domain-trigger {
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-weight: bold;
+        }
+
+        .domain-trigger:hover {
+            background: #f8fafc;
+        }
+
+        .content {
+            display: none;
+            padding: 0 20px 20px 20px;
+            border-top: 1px solid var(--border);
+        }
+
+        .content.show {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        th {
+            text-align: left;
+            padding: 10px;
+            color: #64748b;
+            border-bottom: 2px solid var(--border);
+        }
+
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .tag {
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+
+        .tag-custom {
+            background: #f5f3ff;
+            color: #7c3aed;
+        }
+
+        .tag-otb {
+            background: #fdf2f8;
+            color: #db2777;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="card">
+            <h1 style="margin:0 0 10px 0">Performance Breakdown Summary</h1>
+            <input type="file" id="logInput" accept=".txt">
+
+            <div id="statsPanel" class="summary-grid" style="display:none;">
+                <div class="stat-box"><span class="stat-label">Total Execution</span><span id="totalExec"
+                        class="stat-val">-</span></div>
+                <div class="stat-box"><span class="stat-label">Slowest Domain</span><span id="slowestDom"
+                        class="stat-val">-</span></div>
+                <div class="stat-box"><span class="stat-label">Critical Steps</span><span id="critSteps"
+                        class="stat-val">-</span></div>
+            </div>
+        </div>
+
+        <div id="insights" class="card" style="display:none;">
+            <h3 style="margin-top:0">Significant Time Takers (>30s)</h3>
+            <div id="slowList"></div>
+        </div>
+
+        <div id="domainList"></div>
+    </div>
+
+    <script>
+        document.getElementById('logInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => processLog(e.target.result);
+            reader.readAsText(file);
+        });
+
+        function processLog(text) {
+            const lines = text.split('\n');
+            const domains = [];
+            let current = null;
+            let lastTS = null;
+
+            const tsRegex = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})/;
+            const domRegex = /Running transformation for (.+?)\s+\*/;
+            const otbRegex = /Column OTB Function\s*:\s*(\w+)/;
+            const cusRegex = /CUSTOM FUNCTION\s*-\s*(.+?)\s*-/;
+
+            lines.forEach(line => {
+                const tsMatch = line.match(tsRegex);
+                if (!tsMatch) return;
+                const time = new Date(tsMatch[1].replace(',', '.'));
+
+                const dMatch = line.match(domRegex);
+                if (dMatch) {
+                    if (current) current.end = time;
+                    current = { name: dMatch[1].trim(), start: time, steps: [] };
+                    domains.push(current);
+                }
+
+                const cMatch = line.match(cusRegex);
+                const oMatch = line.match(otbRegex);
+                if ((cMatch || oMatch) && current) {
+                    const duration = lastTS ? (time - lastTS) / 1000 : 0;
+                    current.steps.push({
+                        name: (cMatch ? cMatch[1] : oMatch[1]).trim(),
+                        type: cMatch ? 'Custom' : 'OTB',
+                        duration: duration,
+                        ts: tsMatch[1].split(' ')[1]
+                    });
+                }
+                lastTS = time;
+            });
+            if (current) current.end = lastTS;
+            renderDashboard(domains);
+        }
+
+        function renderDashboard(domains) {
+            document.getElementById('statsPanel').style.display = 'grid';
+            document.getElementById('insights').style.display = 'block';
+
+            const slowList = document.getElementById('slowList');
+            const list = document.getElementById('domainList');
+            slowList.innerHTML = '';
+            list.innerHTML = '';
+
+            let totalS = 0;
+            let slowest = { name: '', time: 0 };
+            let criticalCount = 0;
+
+            domains.forEach(d => {
+                const dTime = (d.end - d.start) / 1000;
+                totalS += dTime;
+                if (dTime > slowest.time) slowest = { name: d.name, time: dTime };
+
+                const domRow = document.createElement('div');
+                domRow.className = 'domain-row';
+
+                const rows = d.steps.map(s => {
+                    if (s.duration > 30) {
+                        criticalCount++;
+                        slowList.innerHTML += `<div class="highlight-item">
+                        <span><strong>${d.name}</strong>: ${s.name}</span>
+                        <span class="slow-tag">${s.duration.toFixed(1)}s</span>
+                    </div>`;
+                    }
+                    return `<tr>
+                    <td>${s.ts}</td>
+                    <td><span class="tag tag-${s.type.toLowerCase()}">${s.type}</span>${s.name}</td>
+                    <td style="font-weight:bold; color:${s.duration > 10 ? 'var(--danger)' : 'inherit'}">${s.duration.toFixed(2)}s</td>
+                </tr>`;
+                }).join('');
+
+                domRow.innerHTML = `
+                <div class="domain-trigger" onclick="this.nextElementSibling.classList.toggle('show')">
+                    <span>${d.name}</span>
+                    <span style="color:var(--accent)">${formatTime(dTime)}</span>
+                </div>
+                <div class="content">
+                    <table>
+                        <thead><tr><th>Time</th><th>Function</th><th>Duration</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>`;
+                list.appendChild(domRow);
+            });
+
+            document.getElementById('totalExec').innerText = formatTime(totalS);
+            document.getElementById('slowestDom').innerText = slowest.name;
+            document.getElementById('critSteps').innerText = criticalCount;
+        }
+
+        function formatTime(s) {
+            if (s < 60) return s.toFixed(1) + 's';
+            return Math.floor(s / 60) + 'm ' + (s % 60).toFixed(0) + 's';
+        }
+    </script>
+</body>
+
+</html>

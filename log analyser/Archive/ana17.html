@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Log Performance Analyzer - Minutes Summary</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #f0f2f5;
+            padding: 20px;
+            font-size: 13px;
+            color: #1e293b;
+        }
+
+        .wrap {
+            max-width: 1000px;
+            margin: auto;
+            background: #fff;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        .header {
+            border-bottom: 2px solid #f1f5f9;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+        }
+
+        .ctrl {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid #e2e8f0;
+            flex-wrap: wrap;
+        }
+
+        .domain {
+            border: 1px solid #e2e8f0;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .dom-head {
+            padding: 12px 18px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            align-items: center;
+        }
+
+        .dom-head:hover {
+            background: #f1f5f9;
+        }
+
+        .content {
+            display: none;
+            padding: 0 18px 18px;
+            border-top: 1px solid #f1f5f9;
+        }
+
+        .show {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th {
+            text-align: left;
+            background: #f8fafc;
+            padding: 10px;
+            color: #64748b;
+            font-size: 11px;
+            text-transform: uppercase;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .tag {
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-right: 10px;
+        }
+
+        .otb {
+            background: #fdf2f8;
+            color: #db2777;
+            border: 1px solid #fbcfe8;
+        }
+
+        .custom {
+            background: #f5f3ff;
+            color: #7c3aed;
+            border: 1px solid #ddd6fe;
+        }
+
+        .dur-cell {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            font-size: 14px;
+        }
+
+        .slow {
+            color: #e11d48;
+            background: #fff1f2;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.2s;
+        }
+
+        .btn-primary {
+            background: #2563eb;
+            color: white;
+        }
+
+        .btn-export {
+            background: #10b981;
+            color: white;
+            margin-left: auto;
+        }
+
+        .btn:disabled {
+            background: #cbd5e1;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="wrap">
+        <div class="header">
+            <h2 style="margin:0">Log Execution Timing Analysis</h2>
+            <p style="color:#64748b; margin:5px 0 0 0">Domain totals in minutes | Individual steps in seconds</p>
+        </div>
+
+        <div class="ctrl">
+            <input type="file" id="logFile" accept=".txt">
+            <label>Step Duration >= <input type="number" id="minFilter" value="0" style="width:50px">s</label>
+            <button class="btn btn-primary" onclick="processLog()">Analyze Log</button>
+            <button id="exportBtn" class="btn btn-export" onclick="downloadCSV()" disabled>Export CSV</button>
+        </div>
+
+        <div id="resultsArea"></div>
+    </div>
+
+    <script>
+        let finalData = [];
+
+        function processLog() {
+            const file = document.getElementById('logFile').files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = e => {
+                const lines = e.target.result.split('\n');
+                finalData = [];
+                let currentDomain = null;
+                let bufferedFunc = null;
+
+                const reTS = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})/;
+                const reDom = /Running transformation for (.+?)\s+\*/;
+                const reOTB = /Column OTB Function\s*:\s*(\w+)/;
+                const reCus = /CUSTOM FUNCTION\s*-\s*(.+?)\s*-/;
+                const reTime = /operation execution time\s*:\s*([\d:]+)/i;
+
+                lines.forEach(line => {
+                    const tsMatch = line.match(reTS);
+                    if (!tsMatch) return;
+
+                    const dMatch = line.match(reDom);
+                    if (dMatch) {
+                        currentDomain = { name: dMatch[1].trim(), steps: [] };
+                        finalData.push(currentDomain);
+                    }
+
+                    const oMatch = line.match(reOTB);
+                    const cMatch = line.match(reCus);
+                    if (oMatch) bufferedFunc = { name: oMatch[1], type: "OTB", ts: tsMatch[1].split(' ')[1] };
+                    if (cMatch) bufferedFunc = { name: cMatch[1], type: "Custom Function", ts: tsMatch[1].split(' ')[1] };
+
+                    const tMatch = line.match(reTime);
+                    if (currentDomain && bufferedFunc && tMatch) {
+                        const p = tMatch[1].split(':');
+                        const seconds = (parseInt(p[0]) * 3600) + (parseInt(p[1]) * 60) + parseFloat(p[2]);
+
+                        currentDomain.steps.push({
+                            ...bufferedFunc,
+                            duration: seconds
+                        });
+
+                        bufferedFunc = null;
+                    }
+                });
+
+                document.getElementById('exportBtn').disabled = false;
+                renderView();
+            };
+            reader.readAsText(file);
+        }
+
+        function renderView() {
+            const min = parseFloat(document.getElementById('minFilter').value) || 0;
+            const area = document.getElementById('resultsArea');
+            area.innerHTML = "";
+
+            finalData.forEach(d => {
+                const filtered = d.steps.filter(s => s.duration >= min);
+                if (min > 0 && filtered.length === 0) return;
+
+                const totalSec = d.steps.reduce((acc, s) => acc + s.duration, 0);
+                const totalMin = (totalSec / 60).toFixed(2);
+
+                const div = document.createElement('div');
+                div.className = 'domain';
+                div.innerHTML = `
+                <div class="dom-head" onclick="this.nextElementSibling.classList.toggle('show')">
+                    <span>📂 Domain: ${d.name}</span>
+                    <span style="color:#2563eb">Sum of Functions: ${totalMin} min</span>
+                </div>
+                <div class="content">
+                    <table>
+                        <thead><tr><th>Time</th><th>Function Name</th><th>Execution Duration</th></tr></thead>
+                        <tbody>
+                            ${filtered.map(s => `
+                                <tr>
+                                    <td style="color:#64748b">${s.ts}</td>
+                                    <td><span class="tag ${s.type === 'OTB' ? 'otb' : 'custom'}">${s.type}</span><strong>${s.name}</strong></td>
+                                    <td class="dur-cell ${s.duration > 30 ? 'slow' : ''}">${s.duration.toFixed(2)}s</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
+                area.appendChild(div);
+            });
+        }
+
+        function downloadCSV() {
+            let csv = "Domain,Timestamp,Category,Function,Seconds,TotalDomainMinutes\n";
+            finalData.forEach(d => {
+                const dMin = (d.steps.reduce((acc, s) => acc + s.duration, 0) / 60).toFixed(2);
+                d.steps.forEach(s => {
+                    csv += `"${d.name}","${s.ts}","${s.type}","${s.name}",${s.duration.toFixed(2)},${dMin}\n`;
+                });
+            });
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'Performance_Summary.csv';
+            a.click();
+        }
+    </script>
+</body>
+
+</html>

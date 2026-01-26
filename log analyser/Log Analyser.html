@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Log Performance Analyzer - Column Sorting</title>
+    <title>Log Performance Analyzer - OTB Upper Case</title>
     <style>
         body {
             font-family: 'Segoe UI', system-ui, sans-serif;
@@ -14,7 +14,7 @@
         }
 
         .wrap {
-            max-width: 1000px;
+            max-width: 1200px;
             margin: auto;
             background: #fff;
             padding: 25px;
@@ -110,17 +110,16 @@
             text-transform: uppercase;
             border-bottom: 2px solid #e2e8f0;
             cursor: pointer;
-            user-select: none;
         }
 
         th:hover {
+            background: #eff6ff;
             color: #2563eb;
-            background: #f1f5f9;
         }
 
-        th.active-sort {
+        .active-sort {
             color: #2563eb;
-            background: #eff6ff;
+            background: #eff6ff !important;
         }
 
         td {
@@ -155,6 +154,11 @@
             font-size: 14px;
         }
 
+        .rec-cell {
+            color: #64748b;
+            font-weight: 600;
+        }
+
         .slow {
             color: #e11d48;
             background: #fff1f2;
@@ -183,7 +187,6 @@
 </head>
 
 <body>
-
     <div class="wrap">
         <div class="header">
             <h2 style="margin:0">Log Execution Timing Analysis</h2>
@@ -195,16 +198,15 @@
 
         <div class="ctrl">
             <input type="file" id="logFile" accept=".txt">
-            <label>Min Step Duration >= <input type="number" id="minFilter" value="0" style="width:50px">s</label>
-            <button class="btn btn-primary" onclick="processLog()">Analyze Log</button>
-            <div style="margin-left: 10px; font-size: 11px; color: #64748b;">
-                Sort by:
-                <select id="columnSort" onchange="renderView()">
-                    <option value="duration">Longest Duration First</option>
-                    <option value="time">Time (Chronological)</option>
+            <label>Min Duration >= <input type="number" id="minFilter" value="0" style="width:45px">s</label>
+            <div style="margin-left: 10px;">
+                Sort: <select id="columnSort" onchange="renderView()">
+                    <option value="duration">Duration</option>
+                    <option value="datetime">Date Time</option>
                 </select>
             </div>
-            <button id="exportBtn" class="btn btn-export" onclick="downloadCSV()" disabled>Export Filtered CSV</button>
+            <button class="btn btn-primary" onclick="processLog()">Analyze Log</button>
+            <button id="exportBtn" class="btn btn-export" onclick="downloadCSV()" disabled>Export CSV</button>
         </div>
 
         <div id="resultsArea"></div>
@@ -229,6 +231,7 @@
                 const reOTB = /Column OTB Function\s*:\s*(\w+)/;
                 const reCus = /CUSTOM FUNCTION\s*-\s*(.+?)\s*-/;
                 const reTime = /operation execution time\s*:\s*([\d:]+)/i;
+                const reRows = /Num rows after (.+?) operation\s*:\s*(\d+)/i;
 
                 lines.forEach(line => {
                     const tsMatch = line.match(reTS);
@@ -242,8 +245,15 @@
 
                     const oMatch = line.match(reOTB);
                     const cMatch = line.match(reCus);
-                    if (oMatch) bufferedFunc = { name: oMatch[1], type: "OTB", ts: tsMatch[1].split(' ')[1] };
-                    if (cMatch) bufferedFunc = { name: cMatch[1], type: "Custom Function", ts: tsMatch[1].split(' ')[1] };
+
+                    // Logic to force OTB to UPPER CASE
+                    if (oMatch) bufferedFunc = { name: oMatch[1].toUpperCase(), type: "OTB", fullTS: tsMatch[1], records: "-" };
+                    if (cMatch) bufferedFunc = { name: cMatch[1], type: "Custom Function", fullTS: tsMatch[1], records: "-" };
+
+                    const rMatch = line.match(reRows);
+                    if (currentDomain && rMatch && currentDomain.steps.length > 0) {
+                        currentDomain.steps[currentDomain.steps.length - 1].records = parseInt(rMatch[2]).toLocaleString();
+                    }
 
                     const tMatch = line.match(reTime);
                     if (currentDomain && bufferedFunc && tMatch) {
@@ -269,13 +279,8 @@
 
             const displayData = finalData.map(d => {
                 const filteredSteps = d.steps.filter(s => s.duration >= min);
-
-                // Internal Sorting based on selection
-                if (sortMode === 'duration') {
-                    filteredSteps.sort((a, b) => b.duration - a.duration);
-                } else {
-                    filteredSteps.sort((a, b) => a.ts.localeCompare(b.ts));
-                }
+                if (sortMode === 'duration') filteredSteps.sort((a, b) => b.duration - a.duration);
+                else filteredSteps.sort((a, b) => a.fullTS.localeCompare(b.fullTS));
 
                 const sumDuration = filteredSteps.reduce((acc, s) => acc + s.duration, 0);
                 return { ...d, filteredSteps, sumDuration };
@@ -284,30 +289,30 @@
                 .sort((a, b) => b.sumDuration - a.sumDuration);
 
             displayData.forEach(d => {
-                const totalMin = (d.sumDuration / 60).toFixed(2);
                 filteredGrandTotal += d.sumDuration;
-
                 const div = document.createElement('div');
                 div.className = 'domain';
                 div.innerHTML = `
                 <div class="dom-head" onclick="this.nextElementSibling.classList.toggle('show')">
                     <span>📂 ${d.name}</span>
-                    <span style="color:#2563eb">Sum of Duration: ${totalMin} min</span>
+                    <span style="color:#2563eb">Sum of Duration: ${(d.sumDuration / 60).toFixed(2)} min</span>
                 </div>
                 <div class="content">
                     <table>
                         <thead>
                             <tr>
-                                <th class="${sortMode === 'time' ? 'active-sort' : ''}">Time ⇅</th>
+                                <th class="${sortMode === 'datetime' ? 'active-sort' : ''}" onclick="setSort('datetime')">Date Time ⇅</th>
                                 <th>Function Name</th>
-                                <th class="${sortMode === 'duration' ? 'active-sort' : ''}">Duration ⇅</th>
+                                <th>Number of Records</th>
+                                <th class="${sortMode === 'duration' ? 'active-sort' : ''}" onclick="setSort('duration')">Duration ⇅</th>
                             </tr>
                         </thead>
                         <tbody>
                             ${d.filteredSteps.map(s => `
                                 <tr>
-                                    <td style="color:#64748b">${s.ts}</td>
+                                    <td style="color:#64748b; white-space: nowrap;">${s.fullTS}</td>
                                     <td><span class="tag ${s.type === 'OTB' ? 'otb' : 'custom'}">${s.type}</span><strong>${s.name}</strong></td>
+                                    <td class="rec-cell">${s.records}</td>
                                     <td class="dur-cell ${s.duration > 30 ? 'slow' : ''}">${s.duration.toFixed(2)}s</td>
                                 </tr>
                             `).join('')}
@@ -316,43 +321,33 @@
                 </div>`;
                 area.appendChild(div);
             });
-
             if (finalData.length > 0) {
                 document.getElementById('executionBanner').style.display = 'block';
                 document.getElementById('totalExecVal').innerText = (filteredGrandTotal / 60).toFixed(2) + " min";
             }
         }
 
+        function setSort(mode) {
+            document.getElementById('columnSort').value = mode;
+            renderView();
+        }
+
         function downloadCSV() {
             const min = parseFloat(document.getElementById('minFilter').value) || 0;
-            const sortMode = document.getElementById('columnSort').value;
-            let csv = "Domain,Timestamp,Category,Function,Seconds,SumOfDurationMinutes\n";
-
-            const exportData = finalData.map(d => {
-                const filteredSteps = d.steps.filter(s => s.duration >= min);
-                if (sortMode === 'duration') {
-                    filteredSteps.sort((a, b) => b.duration - a.duration);
-                } else {
-                    filteredSteps.sort((a, b) => a.ts.localeCompare(b.ts));
-                }
-                const sumDuration = filteredSteps.reduce((acc, s) => acc + s.duration, 0);
-                return { ...d, filteredSteps, sumDuration };
-            })
-                .filter(d => d.filteredSteps.length > 0)
-                .sort((a, b) => b.sumDuration - a.sumDuration);
-
-            exportData.forEach(d => {
-                const dMin = (d.sumDuration / 60).toFixed(2);
-                d.filteredSteps.forEach(s => {
-                    csv += `"${d.name}","${s.ts}","${s.type}","${s.name.replace(/"/g, '""')}",${s.duration.toFixed(2)},${dMin}\n`;
+            let csv = "Domain,Date Time,Category,Function,Records,Seconds,SumOfDurationMinutes\n";
+            finalData.forEach(d => {
+                const filtered = d.steps.filter(s => s.duration >= min);
+                if (filtered.length === 0) return;
+                const dMin = (filtered.reduce((acc, s) => acc + s.duration, 0) / 60).toFixed(2);
+                filtered.forEach(s => {
+                    csv += `"${d.name}","${s.fullTS}","${s.type}","${s.name.replace(/"/g, '""')}","${s.records}",${s.duration.toFixed(2)},${dMin}\n`;
                 });
             });
-
             const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `Log_Performance_${sortMode}_sorted.csv`;
+            a.download = `Log_Analysis_Final.csv`;
             a.click();
         }
     </script>

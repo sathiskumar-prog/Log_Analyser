@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Log Performance Comparator - Records & Multi-Sort</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #f0f2f5;
+            padding: 20px;
+            font-size: 13px;
+            color: #1e293b;
+        }
+
+        .wrap {
+            max-width: 1300px;
+            margin: auto;
+            background: #fff;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        .header {
+            border-bottom: 2px solid #f1f5f9;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+        }
+
+        .upload-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .file-box {
+            background: #f8fafc;
+            border: 2px dashed #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .ctrl {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            align-items: center;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            background: white;
+            table-layout: fixed;
+        }
+
+        th {
+            text-align: left;
+            background: #2563eb;
+            color: white;
+            padding: 12px;
+            font-size: 11px;
+            text-transform: uppercase;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        th:hover {
+            background: #1d4ed8;
+        }
+
+        th.sort-active {
+            background: #1e40af;
+            text-decoration: underline;
+        }
+
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #f1f5f9;
+            word-wrap: break-word;
+        }
+
+        .diff-pos {
+            color: #e11d48;
+            font-weight: bold;
+            background: #fff1f2;
+        }
+
+        .diff-neg {
+            color: #059669;
+            font-weight: bold;
+            background: #ecfdf5;
+        }
+
+        .tag {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-right: 5px;
+            text-transform: uppercase;
+        }
+
+        .otb {
+            background: #fdf2f8;
+            color: #db2777;
+        }
+
+        .custom {
+            background: #f5f3ff;
+            color: #7c3aed;
+        }
+
+        .record-cell {
+            color: #64748b;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .btn {
+            padding: 10px 25px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            background: #2563eb;
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="wrap">
+        <div class="header">
+            <h2 style="margin:0">Log Performance Comparator</h2>
+            <p style="color:#64748b">Compare variances in execution time and data volume between two reports</p>
+        </div>
+
+        <div class="upload-grid">
+            <div class="file-box">
+                <strong>Base Report (Old)</strong><br><br>
+                <input type="file" id="fileA" accept=".csv">
+            </div>
+            <div class="file-box">
+                <strong>Target Report (New)</strong><br><br>
+                <input type="file" id="fileB" accept=".csv">
+            </div>
+        </div>
+
+        <div class="ctrl">
+            <button class="btn" onclick="compareReports()">Run Comparison</button>
+            <span style="color: #64748b; font-size: 11px;">(Click headers to sort results)</span>
+        </div>
+
+        <div id="resultsArea">
+            <table id="compareTable" style="display:none;">
+                <thead>
+                    <tr>
+                        <th onclick="sortTable(0)">Domain ⇅</th>
+                        <th onclick="sortTable(1)">Function ⇅</th>
+                        <th onclick="sortTable(2)">Base Rec ⇅</th>
+                        <th onclick="sortTable(3)">Target Rec ⇅</th>
+                        <th onclick="sortTable(4)">Base (s) ⇅</th>
+                        <th onclick="sortTable(5)">Target (s) ⇅</th>
+                        <th id="varHeader" onclick="sortTable(6)">Variance ($ \Delta $) ⇅</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let comparisonData = [];
+
+        async function parseCSV(file) {
+            const text = await file.text();
+            const lines = text.split('\n').filter(l => l.trim() !== "");
+            const data = {};
+
+            for (let i = 1; i < lines.length; i++) {
+                const parts = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+                if (parts.length < 6) continue;
+
+                const domain = parts[0].replace(/"/g, '');
+                const type = parts[2].replace(/"/g, '');
+                const func = parts[3].replace(/"/g, '');
+                const records = parts[4].replace(/"/g, '').replace(/,/g, '');
+                const seconds = parseFloat(parts[5]);
+
+                const key = `${domain}|${func}`;
+                data[key] = { domain, func, type, seconds, records: parseInt(records) || 0 };
+            }
+            return data;
+        }
+
+        async function compareReports() {
+            const fileA = document.getElementById('fileA').files[0];
+            const fileB = document.getElementById('fileB').files[0];
+
+            if (!fileA || !fileB) {
+                alert("Please upload both CSV reports.");
+                return;
+            }
+
+            const dataA = await parseCSV(fileA);
+            const dataB = await parseCSV(fileB);
+            comparisonData = [];
+
+            const allKeys = Array.from(new Set([...Object.keys(dataA), ...Object.keys(dataB)]));
+
+            allKeys.forEach(key => {
+                const rowA = dataA[key] || { seconds: 0, records: 0 };
+                const rowB = dataB[key] || { seconds: 0, records: 0 };
+                const info = dataA[key] || dataB[key];
+
+                comparisonData.push({
+                    domain: info.domain,
+                    func: info.func,
+                    type: info.type,
+                    baseSec: rowA.seconds,
+                    targetSec: rowB.seconds,
+                    baseRec: rowA.records,
+                    targetRec: rowB.records,
+                    variance: rowB.seconds - rowA.seconds
+                });
+            });
+
+            // Default sort by variance descending
+            comparisonData.sort((a, b) => b.variance - a.variance);
+            renderTable();
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = "";
+
+            comparisonData.forEach(row => {
+                let diffClass = row.variance > 0.1 ? "diff-pos" : (row.variance < -0.1 ? "diff-neg" : "");
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                <td>${row.domain}</td>
+                <td><span class="tag ${row.type === 'OTB' ? 'otb' : 'custom'}">${row.type}</span> <strong>${row.func}</strong></td>
+                <td class="record-cell">${row.baseRec.toLocaleString()}</td>
+                <td class="record-cell">${row.targetRec.toLocaleString()}</td>
+                <td>${row.baseSec.toFixed(2)}s</td>
+                <td>${row.targetSec.toFixed(2)}s</td>
+                <td class="${diffClass}">${row.variance > 0 ? '+' : ''}${row.variance.toFixed(2)}s</td>
+            `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('compareTable').style.display = 'table';
+        }
+
+        let sortDirection = false;
+        function sortTable(columnIndex) {
+            sortDirection = !sortDirection;
+            const keys = ['domain', 'func', 'baseRec', 'targetRec', 'baseSec', 'targetSec', 'variance'];
+            const key = keys[columnIndex];
+
+            comparisonData.sort((a, b) => {
+                let valA = a[key];
+                let valB = b[key];
+
+                if (typeof valA === 'string') {
+                    return sortDirection ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                } else {
+                    return sortDirection ? valA - valB : valB - valA;
+                }
+            });
+
+            // UI Feedback: Highlight active sort column
+            const headers = document.querySelectorAll('th');
+            headers.forEach((th, idx) => {
+                th.classList.toggle('sort-active', idx === columnIndex);
+            });
+
+            renderTable();
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Log Function Extractor</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            background: #f0f2f5;
+            padding: 40px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .card {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 800px;
+        }
+
+        h2 {
+            color: #1a73e8;
+            margin-top: 0;
+        }
+
+        #results {
+            width: 100%;
+            height: 350px;
+            margin-top: 15px;
+            font-family: monospace;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #1e1e1e;
+            color: #9cdcfe;
+            box-sizing: border-box;
+            white-space: pre;
+        }
+
+        .stats {
+            font-weight: bold;
+            margin: 15px 0;
+            padding: 10px;
+            background: #e8f0fe;
+            border-radius: 6px;
+        }
+
+        .btn {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .btn:disabled {
+            background: #ccc;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="card">
+        <h2>Multi-Line Log Parser</h2>
+        <p>Identifies functions even when separated by other log entries.</p>
+
+        <input type="file" id="fileInput" accept=".log,.txt">
+        <div id="stats" class="stats">Upload a log file to begin.</div>
+
+        <textarea id="results" readonly></textarea>
+
+        <div style="margin-top: 20px;">
+            <button class="btn" id="dlBtn" onclick="download()" disabled>Download Unique List</button>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('fileInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (event) {
+                const lines = event.target.result.split(/\r?\n/);
+                const uniqueFunctions = new Set();
+
+                let lastSeenFunction = null;
+
+                lines.forEach(line => {
+                    // 1. Look for the Custom Function declaration
+                    if (line.includes("CUSTOM FUNCTION -")) {
+                        // Extract name between "CUSTOM FUNCTION - " and the next " - "
+                        const parts = line.split("CUSTOM FUNCTION -");
+                        if (parts[1]) {
+                            // Takes the string after the prefix and clips at the next dash or space
+                            lastSeenFunction = parts[1].trim().split(" ")[0];
+                        }
+                    }
+
+                    // 2. If we see Pandas Apply and have a pending function name, save it
+                    if (line.includes("Pandas Apply:") && lastSeenFunction) {
+                        uniqueFunctions.add(lastSeenFunction);
+                        // lastSeenFunction = null; // Uncomment if one function only maps to ONE apply
+                    }
+                });
+
+                const sortedList = Array.from(uniqueFunctions).sort();
+                display(sortedList);
+            };
+            reader.readAsText(file);
+        });
+
+        function display(list) {
+            const resultsArea = document.getElementById('results');
+            const dlBtn = document.getElementById('dlBtn');
+            const stats = document.getElementById('stats');
+
+            if (list.length > 0) {
+                resultsArea.value = list.join('\n');
+                stats.innerText = `Found ${list.length} unique functions followed by Pandas Apply.`;
+                dlBtn.disabled = false;
+            } else {
+                resultsArea.value = "No matches found.";
+                stats.innerText = "No patterns found. Check if 'CUSTOM FUNCTION -' appears before 'Pandas Apply:'";
+                dlBtn.disabled = true;
+            }
+        }
+
+        function download() {
+            const blob = new Blob([document.getElementById('results').value], { type: 'text/plain' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'extracted_functions.txt';
+            a.click();
+        }
+    </script>
+
+</body>
+
+</html>

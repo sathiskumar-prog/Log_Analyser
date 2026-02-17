@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Domain & OTB Function Timing Analyzer</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --domain-bg: #f1f5f9;
+            --func-text: #db2777;
+            --border: #e2e8f0;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #f8fafc;
+            padding: 20px;
+            color: #1e293b;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 1rem;
+        }
+
+        .upload-section {
+            border: 2px dashed var(--primary);
+            padding: 2rem;
+            text-align: center;
+            border-radius: 8px;
+            background: #eff6ff;
+            margin-bottom: 2rem;
+            cursor: pointer;
+        }
+
+        input[type="file"] {
+            display: none;
+        }
+
+        .domain-card {
+            border: 1px solid var(--border);
+            margin-bottom: 1.5rem;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        .domain-header {
+            background: var(--domain-bg);
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .domain-title {
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: var(--primary);
+        }
+
+        .domain-time {
+            background: #dcfce7;
+            color: #166534;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        th {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            background: #f8fafc;
+            color: #64748b;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: top;
+        }
+
+        .func-name {
+            font-family: monospace;
+            font-weight: 600;
+            color: var(--func-text);
+        }
+
+        .duration {
+            font-family: monospace;
+            font-weight: bold;
+        }
+
+        .slow-task {
+            color: #dc2626;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="header">
+            <h1>📊 Log Timing Analyzer</h1>
+            <p>Analyze execution times for <strong>Domains</strong> and <strong>OTB Functions</strong></p>
+        </div>
+
+        <label class="upload-section">
+            <strong>Click to Upload Log File (.txt)</strong>
+            <input type="file" id="logInput" accept=".txt">
+        </label>
+
+        <div id="output"></div>
+    </div>
+
+    <script>
+        document.getElementById('logInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (event) {
+                parseLogs(event.target.result);
+            };
+            reader.readAsText(file);
+        });
+
+        function parseLogs(text) {
+            const lines = text.split('\n');
+            const output = document.getElementById('output');
+            output.innerHTML = '';
+
+            let domains = [];
+            let currentDomain = null;
+            let lastTimestamp = null;
+
+            // Specific patterns for your log format
+            const tsRegex = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})/;
+            const domainRegex = /Running transformation for (.+)\.\.\./;
+            const functionRegex = /Column OTB Function : (\w+)/;
+
+            lines.forEach(line => {
+                const tsMatch = line.match(tsRegex);
+                if (!tsMatch) return;
+
+                const currentTime = new Date(tsMatch[1].replace(',', '.'));
+
+                // Check for Domain Start
+                const domainMatch = line.match(domainRegex);
+                if (domainMatch) {
+                    if (currentDomain) currentDomain.endTime = currentTime;
+                    currentDomain = {
+                        name: domainMatch[1],
+                        startTime: currentTime,
+                        functions: []
+                    };
+                    domains.push(currentDomain);
+                }
+
+                // Check for OTB Function
+                const funcMatch = line.match(functionRegex);
+                if (funcMatch && currentDomain) {
+                    // Calculate time since the previous log entry to find duration of this specific step
+                    const duration = lastTimestamp ? (currentTime - lastTimestamp) / 1000 : 0;
+                    currentDomain.functions.push({
+                        name: funcMatch[1],
+                        timestamp: tsMatch[1].split(' ')[1],
+                        duration: duration
+                    });
+                }
+
+                lastTimestamp = currentTime;
+            });
+
+            if (currentDomain) currentDomain.endTime = lastTimestamp;
+            renderResults(domains);
+        }
+
+        function renderResults(domains) {
+            const output = document.getElementById('output');
+
+            domains.forEach(domain => {
+                const totalSec = (domain.endTime - domain.startTime) / 1000;
+                const card = document.createElement('div');
+                card.className = 'domain-card';
+
+                const rows = domain.functions.map(f => `
+                <tr>
+                    <td>${f.timestamp}</td>
+                    <td class="func-name">${f.name}</td>
+                    <td class="duration ${f.duration > 2 ? 'slow-task' : ''}">${f.duration.toFixed(3)}s</td>
+                </tr>
+            `).join('');
+
+                card.innerHTML = `
+                <div class="domain-header">
+                    <span class="domain-title">Domain: ${domain.name}</span>
+                    <span class="domain-total">Total Execution: ${formatDuration(totalSec)}</span>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>OTB Function</th>
+                            <th>Step Duration</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows || '<tr><td colspan="3">No OTB functions found for this domain.</td></tr>'}
+                    </tbody>
+                </table>
+            `;
+                output.appendChild(card);
+            });
+        }
+
+        function formatDuration(sec) {
+            const mins = Math.floor(sec / 60);
+            const secs = (sec % 60).toFixed(2);
+            return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+        }
+    </script>
+
+</body>
+
+</html>

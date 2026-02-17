@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Execution Timing Analyzer</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg: #f8fafc;
+            --border: #e2e8f0;
+            --custom-color: #7c3aed;
+            --otb-color: #db2777;
+            --slow-bg: #fff1f2;
+            --slow-text: #e11d48;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            color: #1e293b;
+            padding: 20px;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+
+        /* Dashboard Header */
+        .dashboard-card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            border: 1px solid var(--border);
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 20px;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            margin-top: 15px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        label {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #64748b;
+        }
+
+        input {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            outline: none;
+        }
+
+        input:focus {
+            border-color: var(--primary);
+        }
+
+        button {
+            padding: 9px 20px;
+            cursor: pointer;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-weight: bold;
+            transition: opacity 0.2s;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        /* Domain Accordion */
+        .domain-item {
+            background: white;
+            border: 1px solid var(--border);
+            margin-bottom: 12px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .domain-header {
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            background: #fff;
+            transition: background 0.2s;
+        }
+
+        .domain-header:hover {
+            background: #f1f5f9;
+        }
+
+        .domain-header.active {
+            background: #f1f5f9;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .domain-meta {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .domain-name {
+            font-weight: 700;
+            font-size: 1.05rem;
+            color: #0f172a;
+        }
+
+        .badge {
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+
+        .badge-time {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .badge-count {
+            background: #f1f5f9;
+            color: #475569;
+        }
+
+        /* Details Table */
+        .domain-content {
+            display: none;
+        }
+
+        .domain-content.show {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        th {
+            text-align: left;
+            padding: 12px 20px;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--border);
+            color: #64748b;
+        }
+
+        td {
+            padding: 10px 20px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        /* Function Indicators */
+        .tag {
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 800;
+            text-transform: uppercase;
+            margin-right: 8px;
+        }
+
+        .tag-custom {
+            background: #f5f3ff;
+            color: var(--custom-color);
+            border: 1px solid #ddd6fe;
+        }
+
+        .tag-otb {
+            background: #fdf2f8;
+            color: var(--otb-color);
+            border: 1px solid #fbcfe8;
+        }
+
+        .func-name {
+            font-family: ui-monospace, monospace;
+            font-weight: 600;
+        }
+
+        .slow-row {
+            background-color: var(--slow-bg);
+            color: var(--slow-text);
+        }
+
+        .chevron {
+            transition: transform 0.3s;
+            font-size: 0.7rem;
+            color: #94a3b8;
+        }
+
+        .active .chevron {
+            transform: rotate(90deg);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <div class="dashboard-card">
+            <h2 style="margin:0">📊 Activity Timing Analyzer</h2>
+            <div class="controls">
+                <div class="control-group">
+                    <label>1. Select Log File</label>
+                    <input type="file" id="logInput" accept=".txt">
+                </div>
+                <div class="control-group">
+                    <label>2. Min Domain Duration (Min)</label>
+                    <input type="number" id="domainFilter" value="0" min="0" step="0.5" style="width: 80px;">
+                </div>
+                <div class="control-group">
+                    <label>3. Min Step Duration (Sec)</label>
+                    <input type="number" id="stepFilter" value="0" min="0" step="1" style="width: 80px;">
+                </div>
+                <button onclick="applyFilters()">Run Analysis</button>
+            </div>
+            <div id="stats" style="margin-top: 15px; font-size: 0.85rem; color: #64748b;"></div>
+        </div>
+
+        <div id="resultsList"></div>
+    </div>
+
+    <script>
+        let rawData = [];
+
+        document.getElementById('logInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                parseLogs(e.target.result);
+                applyFilters();
+            };
+            reader.readAsText(file);
+        });
+
+        function parseLogs(text) {
+            const lines = text.split('\n');
+            rawData = [];
+            let currentDomain = null;
+            let lastTS = null;
+
+            // Specialized Regex for your log format
+            const tsRegex = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})/;
+            const domRegex = /Running transformation for (.+?)\s+\*/;
+            const otbRegex = /Column OTB Function\s*:\s*(\w+)/;
+            const cusRegex = /CUSTOM FUNCTION\s*-\s*(.+?)\s*-/;
+
+            lines.forEach(line => {
+                const tsMatch = line.match(tsRegex);
+                if (!tsMatch) return;
+
+                const time = new Date(tsMatch[1].replace(',', '.'));
+
+                const dMatch = line.match(domRegex);
+                if (dMatch) {
+                    if (currentDomain) currentDomain.end = time;
+                    currentDomain = { name: dMatch[1].trim(), start: time, steps: [] };
+                    rawData.push(currentDomain);
+                }
+
+                const cMatch = line.match(cusRegex);
+                const oMatch = line.match(otbRegex);
+
+                if ((cMatch || oMatch) && currentDomain) {
+                    const duration = lastTS ? (time - lastTS) / 1000 : 0;
+                    currentDomain.steps.push({
+                        name: (cMatch ? cMatch[1] : oMatch[1]).trim(),
+                        type: cMatch ? 'Custom' : 'OTB',
+                        ts: tsMatch[1].split(' ')[1],
+                        sec: duration
+                    });
+                }
+                lastTS = time;
+            });
+            if (currentDomain) currentDomain.end = lastTS;
+        }
+
+        function applyFilters() {
+            const minDom = parseFloat(document.getElementById('domainFilter').value) || 0;
+            const minStep = parseFloat(document.getElementById('stepFilter').value) || 0;
+            const list = document.getElementById('resultsList');
+            list.innerHTML = '';
+
+            let visibleCount = 0;
+
+            rawData.forEach(d => {
+                const totalSec = (d.end - d.start) / 1000;
+                const totalMin = totalSec / 60;
+
+                if (totalMin < minDom) return;
+
+                const filteredSteps = d.steps.filter(s => s.sec >= minStep);
+                if (minStep > 0 && filteredSteps.length === 0) return;
+
+                visibleCount++;
+                const item = document.createElement('div');
+                item.className = 'domain-item';
+
+                const rows = filteredSteps.map(s => `
+                <tr class="${s.sec > 10 ? 'slow-row' : ''}">
+                    <td>${s.ts}</td>
+                    <td>
+                        <span class="tag tag-${s.type.toLowerCase()}">${s.type}</span>
+                        <span class="func-name" style="color: ${s.type === 'Custom' ? 'var(--custom-color)' : 'var(--otb-color)'}">${s.name}</span>
+                    </td>
+                    <td style="font-weight: bold;">${s.sec.toFixed(3)}s</td>
+                </tr>
+            `).join('');
+
+                item.innerHTML = `
+                <div class="domain-header" onclick="this.classList.toggle('active'); this.nextElementSibling.classList.toggle('show')">
+                    <div class="domain-meta">
+                        <span class="chevron">▶</span>
+                        <span class="domain-name">${d.name}</span>
+                        <span class="badge badge-time">${formatTime(totalSec)}</span>
+                    </div>
+                    <span class="badge badge-count">${filteredSteps.length} Activities Shown</span>
+                </div>
+                <div class="domain-content">
+                    <table>
+                        <thead><tr><th>Timestamp</th><th>Function Type & Name</th><th>Duration (Seconds)</th></tr></thead>
+                        <tbody>${rows || '<tr><td colspan="3" style="text-align:center; padding: 20px;">No steps match the filter criteria.</td></tr>'}</tbody>
+                    </table>
+                </div>
+            `;
+                list.appendChild(item);
+            });
+            document.getElementById('stats').innerText = `Displaying ${visibleCount} domains out of ${rawData.length}.`;
+        }
+
+        function formatTime(s) {
+            if (s < 60) return s.toFixed(1) + 's';
+            const m = Math.floor(s / 60);
+            const rem = (s % 60).toFixed(0);
+            return `${m}m ${rem}s`;
+        }
+    </script>
+</body>
+
+</html>

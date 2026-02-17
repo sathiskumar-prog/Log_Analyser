@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Log Performance Comparator</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #f0f2f5;
+            padding: 20px;
+            font-size: 13px;
+            color: #1e293b;
+        }
+
+        .wrap {
+            max-width: 1200px;
+            margin: auto;
+            background: #fff;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+        }
+
+        .header {
+            border-bottom: 2px solid #f1f5f9;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+        }
+
+        .upload-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .file-box {
+            background: #f8fafc;
+            border: 2px dashed #e2e8f0;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .ctrl {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            background: white;
+        }
+
+        th {
+            text-align: left;
+            background: #2563eb;
+            color: white;
+            padding: 12px;
+            font-size: 11px;
+            text-transform: uppercase;
+            position: sticky;
+            top: 0;
+        }
+
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .diff-pos {
+            color: #e11d48;
+            font-weight: bold;
+            background: #fff1f2;
+        }
+
+        /* Slower */
+        .diff-neg {
+            color: #059669;
+            font-weight: bold;
+            background: #ecfdf5;
+        }
+
+        /* Faster */
+        .diff-neutral {
+            color: #64748b;
+        }
+
+        .domain-row {
+            background: #f8fafc;
+            font-weight: bold;
+            color: #2563eb;
+        }
+
+        .btn {
+            padding: 10px 25px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            background: #2563eb;
+            color: white;
+        }
+
+        .tag {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-right: 5px;
+        }
+
+        .otb {
+            background: #fdf2f8;
+            color: #db2777;
+        }
+
+        .custom {
+            background: #f5f3ff;
+            color: #7c3aed;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="wrap">
+        <div class="header">
+            <h2 style="margin:0">Log Performance Comparator</h2>
+            <p style="color:#64748b">Compare two CSV exports to identify performance regression</p>
+        </div>
+
+        <div class="upload-grid">
+            <div class="file-box">
+                <strong>Base Report (Old)</strong><br><br>
+                <input type="file" id="fileA" accept=".csv">
+            </div>
+            <div class="file-box">
+                <strong>Target Report (New)</strong><br><br>
+                <input type="file" id="fileB" accept=".csv">
+            </div>
+        </div>
+
+        <div class="ctrl">
+            <button class="btn" onclick="compareReports()">Run Comparison</button>
+        </div>
+
+        <div id="resultsArea">
+            <table id="compareTable" style="display:none;">
+                <thead>
+                    <tr>
+                        <th>Domain</th>
+                        <th>Function</th>
+                        <th>Base (Sec)</th>
+                        <th>Target (Sec)</th>
+                        <th>Variance ($ \Delta $)</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        async function parseCSV(file) {
+            const text = await file.text();
+            const lines = text.split('\n').filter(l => l.trim() !== "");
+            const data = {};
+
+            // Skip header, process rows
+            for (let i = 1; i < lines.length; i++) {
+                // Split by comma but handle quoted values
+                const parts = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+                if (parts.length < 6) continue;
+
+                const domain = parts[0].replace(/"/g, '');
+                const type = parts[2].replace(/"/g, '');
+                const func = parts[3].replace(/"/g, '');
+                const seconds = parseFloat(parts[5]);
+
+                const key = `${domain}|${func}`;
+                data[key] = { domain, func, type, seconds };
+            }
+            return data;
+        }
+
+        async function compareReports() {
+            const fileA = document.getElementById('fileA').files[0];
+            const fileB = document.getElementById('fileB').files[0];
+
+            if (!fileA || !fileB) {
+                alert("Please upload both CSV reports.");
+                return;
+            }
+
+            const dataA = await parseCSV(fileA);
+            const dataB = await parseCSV(fileB);
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = "";
+
+            // Combine all unique keys from both reports
+            const allKeys = Array.from(new Set([...Object.keys(dataA), ...Object.keys(dataB)]));
+
+            // Sort by Domain then Function
+            allKeys.sort();
+
+            allKeys.forEach(key => {
+                const rowA = dataA[key] || { seconds: 0 };
+                const rowB = dataB[key] || { seconds: 0 };
+                const info = dataA[key] || dataB[key];
+
+                const diff = rowB.seconds - rowA.seconds;
+                let diffClass = "diff-neutral";
+                let status = "No Change";
+
+                if (diff > 0.1) { diffClass = "diff-pos"; status = "⚠ Slower"; }
+                else if (diff < -0.1) { diffClass = "diff-neg"; status = "✔ Faster"; }
+
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                <td>${info.domain}</td>
+                <td><span class="tag ${info.type === 'OTB' ? 'otb' : 'custom'}">${info.type}</span> <strong>${info.func}</strong></td>
+                <td>${rowA.seconds.toFixed(2)}s</td>
+                <td>${rowB.seconds.toFixed(2)}s</td>
+                <td class="${diffClass}">${diff > 0 ? '+' : ''}${diff.toFixed(2)}s</td>
+                <td class="${diffClass}">${status}</td>
+            `;
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('compareTable').style.display = 'table';
+        }
+    </script>
+</body>
+
+</html>

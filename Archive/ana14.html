@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Lite Log Analyzer - Domain & Function Breakdown</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            padding: 20px;
+            font-size: 13px;
+        }
+
+        .wrap {
+            max-width: 950px;
+            margin: auto;
+            background: #fff;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            border-bottom: 2px solid #eee;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+        }
+
+        .ctrl {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .domain {
+            border: 1px solid #e2e8f0;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            background: white;
+        }
+
+        .dom-head {
+            padding: 12px 15px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            font-weight: 700;
+            color: #1e293b;
+        }
+
+        .dom-head:hover {
+            background: #f1f5f9;
+        }
+
+        .content {
+            display: none;
+            padding: 0 15px 15px;
+            border-top: 1px solid #f1f5f9;
+        }
+
+        .show {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th {
+            text-align: left;
+            background: #f8fafc;
+            padding: 8px;
+            color: #64748b;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        td {
+            padding: 8px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .type-tag {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+            text-transform: uppercase;
+            margin-right: 8px;
+        }
+
+        .otb-label {
+            background: #fdf2f8;
+            color: #db2777;
+            border: 1px solid #fbcfe8;
+        }
+
+        .custom-label {
+            background: #f5f3ff;
+            color: #7c3aed;
+            border: 1px solid #ddd6fe;
+        }
+
+        .duration-val {
+            font-family: monospace;
+            font-weight: bold;
+            color: #0f172a;
+        }
+
+        .slow {
+            background: #fff1f2;
+            color: #e11d48;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="wrap">
+        <div class="header">
+            <h2 style="margin:0">Log Performance Analyzer</h2>
+            <small style="color:#64748b">Summarizing execution time by Domain and Function type</small>
+        </div>
+
+        <div class="ctrl">
+            <div style="display:flex; flex-direction:column; gap:5px">
+                <label>1. Upload Log</label>
+                <input type="file" id="fInput" accept=".txt">
+            </div>
+            <div style="display:flex; flex-direction:column; gap:5px">
+                <label>2. Filter (>= Sec)</label>
+                <input type="number" id="minSec" value="0" style="width:60px">
+            </div>
+            <button onclick="parseLog()"
+                style="padding: 10px 20px; background: #2563eb; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; margin-top: 15px;">Analyze</button>
+        </div>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        let logData = [];
+
+        function parseLog() {
+            const file = document.getElementById('fInput').files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = e => {
+                const lines = e.target.result.split('\n');
+                logData = [];
+                let currentDomain = null;
+                let lastFuncInfo = { name: "Unknown", type: "OTB" };
+                let lastTimestamp = null;
+
+                // Log Patterns
+                const reTS = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})/;
+                const reDom = /Running transformation for (.+?)\s+\*/;
+                const reOTB = /Column OTB Function\s*:\s*(\w+)/;
+                const reCus = /CUSTOM FUNCTION\s*-\s*(.+?)\s*-/;
+                const reOpTime = /operation execution time\s*:\s*([\d:]+)/i;
+
+                lines.forEach(line => {
+                    const tsMatch = line.match(reTS);
+                    if (!tsMatch) return;
+                    const currentTime = new Date(tsMatch[1].replace(',', '.'));
+
+                    // Domain Identification
+                    const dMatch = line.match(reDom);
+                    if (dMatch) {
+                        if (currentDomain) currentDomain.end = currentTime;
+                        currentDomain = { name: dMatch[1].trim(), start: currentTime, activities: [] };
+                        logData.push(currentDomain);
+                    }
+
+                    // Function Name Capture
+                    const oMatch = line.match(reOTB);
+                    const cMatch = line.match(reCus);
+                    const opMatch = line.match(reOpTime);
+
+                    if (oMatch) lastFuncInfo = { name: oMatch[1], type: "OTB" };
+                    if (cMatch) lastFuncInfo = { name: cMatch[1], type: "Custom Function" };
+
+                    // Duration and Label Logic
+                    if (currentDomain && (oMatch || cMatch || opMatch)) {
+                        let duration = 0;
+                        let labelType = lastFuncInfo.type;
+                        let funcName = lastFuncInfo.name;
+
+                        if (opMatch) {
+                            const p = opMatch[1].split(':');
+                            duration = (parseInt(p[0]) * 3600) + (parseInt(p[1]) * 60) + parseFloat(p[2]);
+                        } else {
+                            duration = lastTimestamp ? (currentTime - lastTimestamp) / 1000 : 0;
+                        }
+
+                        currentDomain.activities.push({
+                            name: funcName,
+                            type: labelType,
+                            duration: duration,
+                            time: tsMatch[1].split(' ')[1]
+                        });
+                    }
+                    lastTimestamp = currentTime;
+                });
+                if (currentDomain) currentDomain.end = lastTimestamp;
+                render();
+            };
+            reader.readAsText(file);
+        }
+
+        function render() {
+            const min = parseFloat(document.getElementById('minSec').value) || 0;
+            const out = document.getElementById('results');
+            out.innerHTML = "";
+
+            logData.forEach(d => {
+                const totalSec = (d.end - d.start) / 1000;
+                const filteredActivities = d.activities.filter(a => a.duration >= min);
+
+                if (min > 0 && filteredActivities.length === 0) return;
+
+                const section = document.createElement('div');
+                section.className = 'domain';
+                section.innerHTML = `
+                <div class="dom-head" onclick="this.nextElementSibling.classList.toggle('show')">
+                    <span>📂 Domain: ${d.name}</span>
+                    <span style="color:#2563eb">${totalSec.toFixed(1)}s total</span>
+                </div>
+                <div class="content">
+                    <table>
+                        <thead>
+                            <tr><th>Timestamp</th><th>Category & Function</th><th>Duration</th></tr>
+                        </thead>
+                        <tbody>
+                            ${filteredActivities.map(a => `
+                                <tr>
+                                    <td style="color:#64748b">${a.time}</td>
+                                    <td>
+                                        <span class="type-tag ${a.type === 'OTB' ? 'otb-label' : 'custom-label'}">${a.type}</span>
+                                        <strong>${a.name}</strong>
+                                    </td>
+                                    <td class="duration-val ${a.duration > 10 ? 'slow' : ''}">${a.duration.toFixed(2)}s</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>`;
+                out.appendChild(section);
+            });
+        }
+    </script>
+</body>
+
+</html>

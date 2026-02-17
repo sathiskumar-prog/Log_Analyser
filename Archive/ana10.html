@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Log Performance Breakdown & Summary</title>
+    <style>
+        :root {
+            --primary: #0f172a;
+            --accent: #2563eb;
+            --danger: #e11d48;
+            --bg: #f8fafc;
+            --border: #e2e8f0;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--primary);
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: auto;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .summary-header {
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin-bottom: 20px;
+            color: var(--accent);
+            border-bottom: 2px solid var(--accent);
+            padding-bottom: 10px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        .stat-box {
+            background: #f1f5f9;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+
+        .stat-val {
+            font-size: 1.4rem;
+            font-weight: 800;
+            color: var(--accent);
+            display: block;
+        }
+
+        .stat-lbl {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: #64748b;
+            font-weight: bold;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: flex-end;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            padding: 15px;
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        input {
+            padding: 6px 10px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+        }
+
+        .domain-row {
+            margin-bottom: 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: white;
+            overflow: hidden;
+        }
+
+        .domain-trigger {
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .domain-trigger:hover {
+            background: #f8fafc;
+        }
+
+        .content {
+            display: none;
+            padding: 0 20px 20px 20px;
+            border-top: 1px solid var(--border);
+        }
+
+        .content.show {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            margin-top: 10px;
+        }
+
+        th {
+            text-align: left;
+            padding: 8px;
+            border-bottom: 2px solid var(--border);
+            color: #64748b;
+        }
+
+        td {
+            padding: 8px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .op-time {
+            color: var(--danger);
+            font-weight: bold;
+        }
+
+        .tag {
+            font-size: 0.7rem;
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-right: 5px;
+            text-transform: uppercase;
+        }
+
+        .tag-otb {
+            background: #fdf2f8;
+            color: #db2777;
+        }
+
+        .tag-custom {
+            background: #f5f3ff;
+            color: #7c3aed;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="card">
+            <h1 style="margin:0">Log Activity Performance Dashboard</h1>
+            <p style="color:#64748b">Updated to correctly list Column OTB Functions and durations</p>
+            <input type="file" id="logInput" accept=".txt" style="margin: 10px 0;">
+            <div class="controls">
+                <div class="control-group">
+                    <label>Filter Step Time (>= X Seconds)</label>
+                    <input type="number" id="stepMin" value="0" step="1">
+                </div>
+                <button onclick="applyFilters()"
+                    style="background:var(--accent); color:white; border:none; padding: 8px 15px; border-radius:4px; cursor:pointer;">Apply
+                    Filters</button>
+            </div>
+        </div>
+        <div id="summaryArea" class="card" style="display:none;">
+            <div class="summary-header">Job Performance Summary</div>
+            <div class="summary-grid">
+                <div class="stat-box"><span id="statTotal" class="stat-val">-</span><span class="stat-lbl">Total Job
+                        Time</span></div>
+                <div class="stat-box"><span id="statSlowest" class="stat-val">-</span><span class="stat-lbl">Slowest
+                        Domain</span></div>
+                <div class="stat-box"><span id="statBottlenecks" class="stat-val">-</span><span
+                        class="stat-lbl">Critical Delays (>10s)</span></div>
+            </div>
+        </div>
+        <div id="resultsList"></div>
+    </div>
+    <script>
+        let logData = [];
+        document.getElementById('logInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => { parseLogs(e.target.result); applyFilters(); };
+            reader.readAsText(file);
+        });
+
+        function parseLogs(text) {
+            const lines = text.split('\n');
+            logData = [];
+            let current = null;
+            let lastTS = null;
+
+            // Optimized Regex for your specific file
+            const tsRegex = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})/;
+            const domRegex = /Running transformation for (.+?)\s+\*/;
+            const otbRegex = /Column OTB Function\s*:\s*(\w+)/; // Catches "Column OTB Function : sort"
+            const cusRegex = /CUSTOM FUNCTION\s*-\s*(.+?)\s*-/; // Catches "CUSTOM FUNCTION - M_RFPENDTC_V -"
+            const opTimeRegex = /operation execution time\s*:\s*([\d:]+)/i; // Catches "operation execution time: 0:04:20"
+
+            lines.forEach(line => {
+                const tsMatch = line.match(tsRegex);
+                if (!tsMatch) return;
+                const time = new Date(tsMatch[1].replace(',', '.'));
+
+                // 1. Detect Domain Start
+                const dMatch = line.match(domRegex);
+                if (dMatch) {
+                    if (current) current.end = time;
+                    current = { name: dMatch[1].trim(), start: time, steps: [] };
+                    logData.push(current);
+                }
+
+                // 2. Extract Timing & Function Name
+                const oMatch = line.match(otbRegex);
+                const cMatch = line.match(cusRegex);
+                const opMatch = line.match(opTimeRegex);
+
+                if ((oMatch || cMatch || opMatch) && current) {
+                    let duration = 0;
+                    let name = "Processing Step";
+                    let type = "Standard";
+
+                    if (opMatch) {
+                        const p = opMatch[1].split(':');
+                        duration = (parseInt(p[0]) * 3600) + (parseInt(p[1]) * 60) + parseFloat(p[2]);
+                        name = "Explicit Operation Time";
+                        type = "OpLog";
+                    } else {
+                        duration = lastTS ? (time - lastTS) / 1000 : 0;
+                        name = oMatch ? oMatch[1] : cMatch[1];
+                        type = oMatch ? "OTB" : "Custom";
+                    }
+
+                    current.steps.push({ name, type, duration, ts: tsMatch[1].split(' ')[1] });
+                }
+                lastTS = time;
+            });
+            if (current) current.end = lastTS;
+        }
+
+        function applyFilters() {
+            const sMin = parseFloat(document.getElementById('stepMin').value) || 0;
+            const list = document.getElementById('resultsList');
+            list.innerHTML = '';
+            let totalS = 0, slowest = { name: 'N/A', time: 0 }, bCount = 0;
+
+            logData.forEach(d => {
+                const dSec = (d.end - d.start) / 1000;
+                totalS += dSec;
+                if (dSec > slowest.time) slowest = { name: d.name, time: dSec };
+
+                const visibleSteps = d.steps.filter(s => s.duration >= sMin);
+                const rows = visibleSteps.map(s => {
+                    if (s.duration > 10) bCount++;
+                    return `<tr><td>${s.ts}</td><td><span class="tag tag-${s.type.toLowerCase()}">${s.type}</span>${s.name}</td><td class="${s.duration > 30 ? 'op-time' : ''}">${s.duration.toFixed(2)}s</td></tr>`;
+                }).join('');
+
+                const div = document.createElement('div');
+                div.className = 'domain-row';
+                div.innerHTML = `<div class="domain-trigger" onclick="this.nextElementSibling.classList.toggle('show')"><span>📂 ${d.name}</span><span style="color:var(--accent)">${formatTime(dSec)}</span></div><div class="content"><table><thead><tr><th>Time</th><th>Function</th><th>Duration</th></tr></thead><tbody>${rows || '<tr><td colspan="3">No steps meeting criteria</td></tr>'}</tbody></table></div>`;
+                list.appendChild(div);
+            });
+
+            document.getElementById('statTotal').innerText = formatTime(totalS);
+            document.getElementById('statSlowest').innerText = slowest.name;
+            document.getElementById('statBottlenecks').innerText = bCount;
+            document.getElementById('summaryArea').style.display = 'block';
+        }
+
+        function formatTime(s) { return s < 60 ? s.toFixed(1) + 's' : Math.floor(s / 60) + 'm ' + (s % 60).toFixed(0) + 's'; }
+    </script>
+</body>
+
+</html>

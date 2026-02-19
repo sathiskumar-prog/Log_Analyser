@@ -3,11 +3,10 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Log Function Extractor</title>
+    <title>Log Pattern Extractor</title>
     <style>
         :root {
             --primary: #0984e3;
-            --success: #00b894;
             --warning: #e17055;
             --bg: #f5f6fa;
         }
@@ -26,14 +25,20 @@
             border-radius: 12px;
             box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
             width: 100%;
-            max-width: 900px;
+            max-width: 850px;
         }
 
         h2 {
             color: #2d3436;
-            margin-top: 0;
+            margin: 0 0 10px 0;
             border-bottom: 2px solid var(--primary);
             padding-bottom: 10px;
+        }
+
+        .description {
+            font-size: 0.9rem;
+            color: #636e72;
+            margin-bottom: 20px;
         }
 
         .drop-zone {
@@ -53,7 +58,7 @@
 
         #results {
             width: 100%;
-            height: 400px;
+            height: 350px;
             font-family: 'Consolas', monospace;
             background: #2d3436;
             color: #00cec9;
@@ -61,7 +66,7 @@
             border-radius: 6px;
             border: none;
             box-sizing: border-box;
-            font-size: 13px;
+            font-size: 14px;
             line-height: 1.5;
         }
 
@@ -70,8 +75,7 @@
             margin-bottom: 15px;
             display: flex;
             gap: 20px;
-            color: #636e72;
-            font-size: 0.9rem;
+            color: #2d3436;
         }
 
         .btn {
@@ -87,21 +91,18 @@
         .btn:disabled {
             background: #b2bec3;
         }
-
-        .trigger-list {
-            font-size: 0.8rem;
-            color: #7f8c8d;
-            margin-bottom: 10px;
-        }
     </style>
 </head>
 
 <body>
 
     <div class="container">
-        <h2>Advanced Log Parser</h2>
-        <div class="trigger-list">
-            Supported Triggers: <b>Pandas Apply</b> | <b>Table Previews (0, 1, 2...)</b> | <b>SettingWithCopyWarning</b>
+        <h2>Advanced Function Parser</h2>
+        <div class="description">
+            Detects <b>CUSTOM FUNCTION</b> names associated with:<br>
+            1. <code>Pandas Apply:</code> progress bars<br>
+            2. <code>[rows x columns]</code> data previews<br>
+            3. <code>SettingWithCopyWarning</code> slice warnings
         </div>
 
         <input type="file" id="fileInput" style="display: none">
@@ -111,10 +112,10 @@
 
         <div class="stats">
             <span id="status">Status: Waiting</span>
-            <span id="count">Unique Functions: 0</span>
+            <span id="count">Unique Functions Found: 0</span>
         </div>
 
-        <textarea id="results" readonly placeholder="Parsed functions will appear here..."></textarea>
+        <textarea id="results" readonly placeholder="Unique function names will appear here..."></textarea>
 
         <div style="margin-top:20px">
             <button class="btn" id="dlBtn" disabled onclick="download()">Download List (.txt)</button>
@@ -145,6 +146,7 @@
                     const line = lines[i].trim();
 
                     // 1. Identify and Buffer the Custom Function Name
+                    // Matches "CUSTOM FUNCTION - " followed by the word
                     if (line.includes("CUSTOM FUNCTION -")) {
                         const match = line.match(/CUSTOM FUNCTION -\s+([A-Za-z0-9_]+)/);
                         if (match && match[1]) {
@@ -154,30 +156,22 @@
 
                     // 2. Check for the triggers if we have a function in the buffer
                     if (bufferedFunction) {
-                        // Trigger A: Pandas Apply Progress
                         const isApply = line.includes("Pandas Apply:");
-
-                        // Trigger B: Slice Warning
+                        const isDataPrint = /\[\d+\s+rows\s+x\s+\d+\s+columns\]/.test(line);
                         const isWarning = line.includes("SettingWithCopyWarning") ||
                             line.includes("A value is trying to be set on a copy of a slice");
 
-                        // Trigger C: Table Data Preview
-                        // This regex looks for lines starting with an index (0, 1, 2...) 
-                        // followed by large gaps and <NA> or data
-                        const isTableData = /^\d+\s+.*<NA>|^\d+\s{3,}/.test(line);
-
-                        // Trigger D: The [rows x columns] footer
-                        const isFooter = /\[\d+\s+rows\s+x\s+\d+\s+columns\]/.test(line);
-
-                        if (isApply || isWarning || isTableData || isFooter) {
+                        if (isApply || isDataPrint || isWarning) {
                             uniqueFunctions.add(bufferedFunction);
+                            // We do NOT clear the buffer here. This handles cases where 
+                            // one function triggers multiple warnings or an apply afterwards.
                         }
                     }
                 }
 
                 const sorted = Array.from(uniqueFunctions).sort();
                 resultsArea.value = sorted.join('\n');
-                countText.innerText = `Unique Functions: ${sorted.length}`;
+                countText.innerText = `Unique Functions Found: ${sorted.length}`;
                 statusText.innerText = "Status: Complete";
                 dlBtn.disabled = sorted.length === 0;
             };
@@ -189,7 +183,7 @@
             const blob = new Blob([resultsArea.value], { type: 'text/plain' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = 'unique_functions.txt';
+            a.download = 'detected_functions.txt';
             a.click();
         }
     </script>

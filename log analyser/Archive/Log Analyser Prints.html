@@ -3,183 +3,193 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Log Pattern Extractor</title>
+    <title>Log Function Extractor</title>
     <style>
         :root {
-            --accent: #00b894;
-            --bg: #dfe6e9;
-            --dark: #2d3436;
+            --primary: #0984e3;
+            --success: #00b894;
+            --warning: #e17055;
+            --bg: #f5f6fa;
         }
 
         body {
             font-family: 'Segoe UI', sans-serif;
             background: var(--bg);
-            padding: 40px;
             display: flex;
             justify-content: center;
+            padding: 20px;
         }
 
-        .app-container {
+        .container {
             background: white;
             padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+            border-radius: 12px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
             width: 100%;
-            max-width: 800px;
+            max-width: 900px;
         }
 
         h2 {
+            color: #2d3436;
             margin-top: 0;
-            color: var(--dark);
-            border-left: 5px solid var(--accent);
-            padding-left: 15px;
+            border-bottom: 2px solid var(--primary);
+            padding-bottom: 10px;
         }
 
-        .upload-area {
-            border: 3px dashed var(--accent);
-            padding: 30px;
+        .drop-zone {
+            border: 2px dashed var(--primary);
+            padding: 40px;
             text-align: center;
-            margin: 20px 0;
-            border-radius: 10px;
+            border-radius: 8px;
             cursor: pointer;
-            transition: 0.2s;
+            margin: 20px 0;
+            background: #fff;
+            transition: 0.3s;
         }
 
-        .upload-area:hover {
-            background: #f0fff4;
+        .drop-zone:hover {
+            background: #f0f7ff;
         }
 
         #results {
             width: 100%;
-            height: 350px;
+            height: 400px;
             font-family: 'Consolas', monospace;
             background: #2d3436;
-            color: #55efc4;
+            color: #00cec9;
             padding: 15px;
-            border-radius: 8px;
+            border-radius: 6px;
             border: none;
             box-sizing: border-box;
-            font-size: 14px;
+            font-size: 13px;
+            line-height: 1.5;
         }
 
-        .badge-row {
-            margin: 15px 0;
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .badge {
-            background: #f1f2f6;
-            padding: 5px 12px;
-            border-radius: 20px;
-            font-size: 0.85rem;
+        .stats {
             font-weight: bold;
-            border: 1px solid #ced4da;
+            margin-bottom: 15px;
+            display: flex;
+            gap: 20px;
+            color: #636e72;
+            font-size: 0.9rem;
         }
 
         .btn {
-            background: var(--accent);
+            background: var(--primary);
             color: white;
             border: none;
-            padding: 12px 24px;
-            border-radius: 6px;
+            padding: 12px 25px;
+            border-radius: 5px;
             cursor: pointer;
             font-weight: bold;
         }
 
         .btn:disabled {
             background: #b2bec3;
-            cursor: not-allowed;
+        }
+
+        .trigger-list {
+            font-size: 0.8rem;
+            color: #7f8c8d;
+            margin-bottom: 10px;
         }
     </style>
 </head>
 
 <body>
 
-    <div class="app-container">
-        <h2>Custom Function Extractor</h2>
-        <p>Scanning for <b>Pandas Apply</b> or <b>Data Previews</b> (rows x columns).</p>
-
-        <input type="file" id="fileInput" style="display: none">
-        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
-            <strong>Drag & Drop Log File</strong> or Click to Browse
+    <div class="container">
+        <h2>Advanced Log Parser</h2>
+        <div class="trigger-list">
+            Supported Triggers: <b>Pandas Apply</b> | <b>Table Previews (0, 1, 2...)</b> | <b>SettingWithCopyWarning</b>
         </div>
 
-        <div class="badge-row">
-            <div class="badge" id="stat-count">Functions: 0</div>
-            <div class="badge" style="color: #0984e3;">Trigger 1: Pandas Apply:</div>
-            <div class="badge" style="color: #e17055;">Trigger 2: [rows x columns]</div>
+        <input type="file" id="fileInput" style="display: none">
+        <div class="drop-zone" onclick="document.getElementById('fileInput').click()">
+            <strong>Click to Upload Log</strong> or Drag File Here
+        </div>
+
+        <div class="stats">
+            <span id="status">Status: Waiting</span>
+            <span id="count">Unique Functions: 0</span>
         </div>
 
         <textarea id="results" readonly placeholder="Parsed functions will appear here..."></textarea>
 
-        <div style="margin-top: 20px;">
-            <button class="btn" id="dlBtn" onclick="download()" disabled>Download Unique List</button>
+        <div style="margin-top:20px">
+            <button class="btn" id="dlBtn" disabled onclick="download()">Download List (.txt)</button>
         </div>
     </div>
 
     <script>
         const fileInput = document.getElementById('fileInput');
         const resultsArea = document.getElementById('results');
-        const statCount = document.getElementById('stat-count');
+        const statusText = document.getElementById('status');
+        const countText = document.getElementById('count');
         const dlBtn = document.getElementById('dlBtn');
 
         fileInput.addEventListener('change', function (e) {
             const file = e.target.files[0];
             if (!file) return;
 
+            statusText.innerText = "Status: Scanning...";
             const reader = new FileReader();
+
             reader.onload = function (event) {
                 const lines = event.target.result.split(/\r?\n/);
                 const uniqueFunctions = new Set();
 
-                let lastFunctionCandidate = null;
+                let bufferedFunction = null;
 
                 for (let i = 0; i < lines.length; i++) {
-                    const line = lines[i];
+                    const line = lines[i].trim();
 
-                    // 1. Identify the function name candidate
+                    // 1. Identify and Buffer the Custom Function Name
                     if (line.includes("CUSTOM FUNCTION -")) {
-                        // Grab the name immediately following the dash
-                        const parts = line.split("CUSTOM FUNCTION -");
-                        if (parts[1]) {
-                            // Clean up: grab first word, remove spaces/dashes
-                            lastFunctionCandidate = parts[1].trim().split(/\s+/)[0];
+                        const match = line.match(/CUSTOM FUNCTION -\s+([A-Za-z0-9_]+)/);
+                        if (match && match[1]) {
+                            bufferedFunction = match[1];
                         }
                     }
 
-                    // 2. Check for success triggers
-                    if (lastFunctionCandidate) {
-                        const hasApply = line.includes("Pandas Apply:");
-                        const hasDataPrint = /\[\d+\s+rows\s+x\s+\d+\s+columns\]/.test(line);
+                    // 2. Check for the triggers if we have a function in the buffer
+                    if (bufferedFunction) {
+                        // Trigger A: Pandas Apply Progress
+                        const isApply = line.includes("Pandas Apply:");
 
-                        if (hasApply || hasDataPrint) {
-                            uniqueFunctions.add(lastFunctionCandidate);
-                            // Optional: reset to null so one apply doesn't trigger multiple counts 
-                            // unless another "CUSTOM FUNCTION -" line is found
-                            lastFunctionCandidate = null;
+                        // Trigger B: Slice Warning
+                        const isWarning = line.includes("SettingWithCopyWarning") ||
+                            line.includes("A value is trying to be set on a copy of a slice");
+
+                        // Trigger C: Table Data Preview
+                        // This regex looks for lines starting with an index (0, 1, 2...) 
+                        // followed by large gaps and <NA> or data
+                        const isTableData = /^\d+\s+.*<NA>|^\d+\s{3,}/.test(line);
+
+                        // Trigger D: The [rows x columns] footer
+                        const isFooter = /\[\d+\s+rows\s+x\s+\d+\s+columns\]/.test(line);
+
+                        if (isApply || isWarning || isTableData || isFooter) {
+                            uniqueFunctions.add(bufferedFunction);
                         }
                     }
                 }
 
-                const finalSortedList = Array.from(uniqueFunctions).sort();
-                display(finalSortedList);
+                const sorted = Array.from(uniqueFunctions).sort();
+                resultsArea.value = sorted.join('\n');
+                countText.innerText = `Unique Functions: ${sorted.length}`;
+                statusText.innerText = "Status: Complete";
+                dlBtn.disabled = sorted.length === 0;
             };
+
             reader.readAsText(file);
         });
-
-        function display(list) {
-            resultsArea.value = list.length > 0 ? list.join('\n') : "No matching scenarios found.";
-            statCount.innerText = `Functions: ${list.length}`;
-            dlBtn.disabled = list.length === 0;
-        }
 
         function download() {
             const blob = new Blob([resultsArea.value], { type: 'text/plain' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = 'unique_functions_list.txt';
+            a.download = 'unique_functions.txt';
             a.click();
         }
     </script>

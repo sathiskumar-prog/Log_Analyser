@@ -1,199 +1,313 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
-    <title>Log Function Extractor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Log Integrity Auditor v4.7</title>
     <style>
-        :root {
-            --primary: #0984e3;
-            --success: #00b894;
-            --warning: #e17055;
-            --bg: #f5f6fa;
+        :root { 
+            --primary: #0984e3; 
+            --error: #d63031; 
+            --warn: #fdcb6e; 
+            --bg: #f5f6fa; 
+            --dark: #2d3436;
+        }
+        
+        body { 
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; 
+            background: var(--bg); 
+            color: var(--dark);
+            padding: 20px; 
+            margin: 0;
         }
 
-        body {
-            font-family: 'Segoe UI', sans-serif;
-            background: var(--bg);
-            display: flex;
-            justify-content: center;
-            padding: 20px;
+        .container { 
+            background: white; 
+            padding: 30px; 
+            border-radius: 12px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1); 
+            width: 100%; 
+            max-width: 1100px; 
+            margin: auto; 
         }
 
-        .container {
-            background: white;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.1);
-            width: 100%;
-            max-width: 900px;
+        .portal-link { text-decoration: none; color: #636e72; font-size: 11px; font-weight: bold; letter-spacing: 1px; }
+
+        .drop-zone { 
+            border: 2px dashed var(--primary); 
+            padding: 40px; 
+            text-align: center; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            margin: 20px 0; 
+            background: #f0f7ff; 
+            transition: background 0.3s;
+        }
+        
+        .drop-zone:hover { background: #e1effe; }
+
+        .info-bar { 
+            display: flex; 
+            gap: 20px; 
+            margin-bottom: 15px; 
+            font-weight: bold; 
+            background: #f1f2f6; 
+            padding: 12px; 
+            border-radius: 6px; 
+            font-size: 13px; 
         }
 
-        h2 {
-            color: #2d3436;
-            margin-top: 0;
-            border-bottom: 2px solid var(--primary);
-            padding-bottom: 10px;
+        .display-label { 
+            font-weight: bold; 
+            font-size: 0.75rem; 
+            text-transform: uppercase; 
+            color: #636e72; 
+            margin-top: 20px; 
+            display: block; 
         }
 
-        .drop-zone {
-            border: 2px dashed var(--primary);
-            padding: 40px;
-            text-align: center;
-            border-radius: 8px;
-            cursor: pointer;
-            margin: 20px 0;
-            background: #fff;
-            transition: 0.3s;
+        .display-box { 
+            width: 100%; 
+            height: 200px; 
+            font-family: 'Consolas', 'Monaco', monospace; 
+            border-radius: 4px; 
+            border: 1px solid #dfe6e9; 
+            padding: 15px; 
+            box-sizing: border-box; 
+            overflow-y: auto; 
+            background: #2d3436; 
+            font-size: 11px; 
+            margin-bottom: 5px; 
+            white-space: pre-wrap; 
+            color: #dfe6e9; 
+            border-left: 5px solid #ccc; 
+        }
+        
+        #funcDisplay { color: #00cec9; border-left-color: #00cec9; } 
+        #dupDisplay { color: #ff7675; border-left-color: var(--error); }
+        #warnDisplay { color: #ffeaa7; border-left-color: var(--warn); } 
+        #errDisplay { color: #ff7675; border-left-color: var(--error); }
+        
+        .btn { 
+            background: #6c5ce7; 
+            color: white; 
+            border: none; 
+            padding: 15px; 
+            border-radius: 6px; 
+            cursor: pointer; 
+            font-weight: bold; 
+            width: 100%; 
+            font-size: 1rem; 
+            margin-top: 20px; 
         }
 
-        .drop-zone:hover {
-            background: #f0f7ff;
-        }
+        #report-template { display: none; }
+        
+        @media print {
+            @page { 
+                margin: 1.5cm; 
+                size: A4;
+            }
+            body { background: white; }
+            .container { display: none !important; }
+            #report-template { display: block !important; }
+            
+            .page-footer {
+                position: fixed;
+                bottom: 0;
+                width: 100%;
+                text-align: center;
+                font-size: 9pt;
+                color: #636e72;
+                border-top: 1px solid #eee;
+                padding: 10px 0;
+            }
 
-        #results {
-            width: 100%;
-            height: 400px;
-            font-family: 'Consolas', monospace;
-            background: #2d3436;
-            color: #00cec9;
-            padding: 15px;
-            border-radius: 6px;
-            border: none;
-            box-sizing: border-box;
-            font-size: 13px;
-            line-height: 1.5;
-        }
+            /* Browser-based page counter */
+            .page-footer::after { content: "Page " counter(page); }
 
-        .stats {
-            font-weight: bold;
-            margin-bottom: 15px;
-            display: flex;
-            gap: 20px;
-            color: #636e72;
-            font-size: 0.9rem;
-        }
-
-        .btn {
-            background: var(--primary);
-            color: white;
-            border: none;
-            padding: 12px 25px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-weight: bold;
-        }
-
-        .btn:disabled {
-            background: #b2bec3;
-        }
-
-        .trigger-list {
-            font-size: 0.8rem;
-            color: #7f8c8d;
-            margin-bottom: 10px;
+            .summary-table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+            .summary-table td, .summary-table th { border: 1px solid #ddd; padding: 8px; text-align: left; font-size: 10pt; }
+            .summary-table th { background: #f2f2f2; width: 30%; }
+            .snapshot-block { 
+                border: 1px solid #ccc; padding: 10px; margin-top: 10px; 
+                font-family: 'Consolas', monospace; font-size: 8.5pt; 
+                background: #fdfdfd; white-space: pre-wrap; 
+                page-break-inside: avoid; border-left: 4px solid #333; 
+            }
+            .section-head { margin-top: 25px; border-bottom: 2px solid #333; padding-bottom: 5px; font-size: 14pt; color: #000 !important; }
         }
     </style>
 </head>
-
 <body>
 
-    <div class="container">
-        <h2>Advanced Log Parser</h2>
-        <div class="trigger-list">
-            Supported Triggers: <b>Pandas Apply</b> | <b>Table Previews (0, 1, 2...)</b> | <b>SettingWithCopyWarning</b>
-        </div>
+<div class="container">
+    <a href="#" class="portal-link">➔ SYSTEM PORTAL</a>
+    <h2>Log Auditor Pro <span style="font-weight: normal; color: #b2bec3;">v4.7</span></h2>
+    
+    <div class="drop-zone" onclick="document.getElementById('fileInput').click()">
+        <strong>Upload execution.log</strong>
+        <p style="font-size: 0.8rem; color: #636e72;">Click to select or drag and drop file here</p>
+    </div>
+    <input type="file" id="fileInput" style="display: none">
 
-        <input type="file" id="fileInput" style="display: none">
-        <div class="drop-zone" onclick="document.getElementById('fileInput').click()">
-            <strong>Click to Upload Log</strong> or Drag File Here
-        </div>
-
-        <div class="stats">
-            <span id="status">Status: Waiting</span>
-            <span id="count">Unique Functions: 0</span>
-        </div>
-
-        <textarea id="results" readonly placeholder="Parsed functions will appear here..."></textarea>
-
-        <div style="margin-top:20px">
-            <button class="btn" id="dlBtn" disabled onclick="download()">Download List (.txt)</button>
-        </div>
+    <div class="info-bar">
+        <span>STUDY ID: <span id="ui-study-id" style="color:var(--primary)">-</span></span>
+        <span style="margin-left:auto">ENGINE: <span id="ui-engine-type" style="color:#6c5ce7">-</span></span>
     </div>
 
-    <script>
-        const fileInput = document.getElementById('fileInput');
-        const resultsArea = document.getElementById('results');
-        const statusText = document.getElementById('status');
-        const countText = document.getElementById('count');
-        const dlBtn = document.getElementById('dlBtn');
+    <span class="display-label">1. Integrity Mismatches</span>
+    <div id="dupDisplay" class="display-box">Awaiting log file...</div>
 
-        fileInput.addEventListener('change', function (e) {
-            const file = e.target.files[0];
-            if (!file) return;
+    <span class="display-label">2. System Warnings</span>
+    <div id="warnDisplay" class="display-box">Awaiting log file...</div>
 
-            statusText.innerText = "Status: Scanning...";
-            const reader = new FileReader();
+    <span class="display-label">3. Logic Snapshots & Data Previews</span>
+    <div id="funcDisplay" class="display-box">Awaiting log file...</div>
 
-            reader.onload = function (event) {
-                const lines = event.target.result.split(/\r?\n/);
-                const uniqueFunctions = new Set();
+    <span class="display-label">4. Critical Errors</span>
+    <div id="errDisplay" class="display-box">Awaiting log file...</div>
 
-                let bufferedFunction = null;
+    <button class="btn" id="pdfBtn" onclick="prepareAndPrint()">Generate Audit PDF Report</button>
+</div>
 
-                for (let i = 0; i < lines.length; i++) {
-                    const line = lines[i].trim();
+<div id="report-template">
+    <h1 id="pdf-header-title">Log Execution & Integrity Report</h1>
+    <table class="summary-table">
+        <tr><th>STUDY ID</th><td id="pdf-study-id" style="font-weight:bold;"></td></tr>
+        <tr><th>EXECUTION ENGINE</th><td id="pdf-engine-type"></td></tr>
+        <tr><th>REPORT DATE</th><td id="pdf-date"></td></tr>
+    </table>
+    
+    <div id="pdf-content-area"></div>
+    
+    <div class="page-footer"></div>
+</div>
 
-                    // 1. Identify and Buffer the Custom Function Name
-                    if (line.includes("CUSTOM FUNCTION -")) {
-                        const match = line.match(/CUSTOM FUNCTION -\s+([A-Za-z0-9_]+)/);
-                        if (match && match[1]) {
-                            bufferedFunction = match[1];
-                        }
-                    }
+<script>
+    let globalData = { rowMismatches: [], warnings: [], errors: [], uniqueFunctions: new Map(), meta: { studyId: "Not found", engineType: "Generic", headerText: "Log Audit" } };
 
-                    // 2. Check for the triggers if we have a function in the buffer
-                    if (bufferedFunction) {
-                        // Trigger A: Pandas Apply Progress
-                        const isApply = line.includes("Pandas Apply:");
+    function prepareAndPrint() {
+        const btn = document.getElementById('pdfBtn');
+        btn.innerText = "Generating PDF...";
+        
+        setTimeout(() => {
+            const area = document.getElementById('pdf-content-area');
+            area.innerHTML = ''; 
 
-                        // Trigger B: Slice Warning
-                        const isWarning = line.includes("SettingWithCopyWarning") ||
-                            line.includes("A value is trying to be set on a copy of a slice");
+            const sections = [
+                { label: "1. Integrity Mismatches", data: globalData.rowMismatches, color: "#d63031" },
+                { label: "2. Warnings", data: globalData.warnings, color: "#b7950b" },
+                { label: "3. Logic Snapshots", data: Array.from(globalData.uniqueFunctions), isMap: true, color: "#2d3436" },
+                { label: "4. Critical Errors", data: globalData.errors, color: "#d63031" }
+            ];
 
-                        // Trigger C: Table Data Preview
-                        // This regex looks for lines starting with an index (0, 1, 2...) 
-                        // followed by large gaps and <NA> or data
-                        const isTableData = /^\d+\s+.*<NA>|^\d+\s{3,}/.test(line);
+            sections.forEach(sec => {
+                let html = `<div class="report-section"><h3 class="section-head" style="color:${sec.color}">${sec.label}</h3>`;
+                if (!sec.isMap && sec.data.length === 0) {
+                    html += `<i>No records found.</i>`;
+                } else if (sec.isMap && sec.data.length === 0) {
+                    html += `<i>No logic snapshots captured.</i>`;
+                } else if (sec.isMap) {
+                    sec.data.forEach(([tag, content]) => {
+                        html += `<div class="snapshot-block"><strong>${tag}</strong><br>${content}</div>`;
+                    });
+                } else {
+                    sec.data.forEach(item => { html += `<div class="snapshot-block">${item}</div>`; });
+                }
+                html += `</div>`;
+                area.innerHTML += html;
+            });
 
-                        // Trigger D: The [rows x columns] footer
-                        const isFooter = /\[\d+\s+rows\s+x\s+\d+\s+columns\]/.test(line);
+            document.getElementById('pdf-study-id').innerText = globalData.meta.studyId;
+            document.getElementById('pdf-engine-type').innerText = globalData.meta.engineType;
+            document.getElementById('pdf-header-title').innerText = globalData.meta.headerText;
+            document.getElementById('pdf-date').innerText = new Date().toLocaleString();
 
-                        if (isApply || isWarning || isTableData || isFooter) {
-                            uniqueFunctions.add(bufferedFunction);
-                        }
+            window.print();
+            btn.innerText = "Generate Audit PDF Report";
+        }, 200);
+    }
+
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        
+        reader.onload = function(event) {
+            const lines = event.target.result.split(/\r?\n/);
+            globalData = { rowMismatches: [], warnings: [], errors: [], uniqueFunctions: new Map(), meta: { studyId: "Not found", engineType: "Generic", headerText: "Report" } };
+
+            let currentDomain = "UNKNOWN", flowType = "UNKNOWN", baseline = null, lastKnownCount = null;
+            let isCollecting = false, currentSnapshotBuffer = [];
+
+            if (event.target.result.includes("Executing GSDM")) { globalData.meta.engineType = "GSDM"; globalData.meta.headerText = "GSDM Execution Audit"; }
+            else if (event.target.result.includes("/spdm/")) { globalData.meta.engineType = "SPDM"; globalData.meta.headerText = "SPDM Execution Audit"; }
+
+            lines.forEach(line => {
+                const cleanLine = line.trim();
+                if (!cleanLine) return;
+
+                // Meta Extract
+                const sm = cleanLine.match(/"?study(?:_id)?"?\s*[:=]\s*['"]?([A-Za-z0-9_-]+)['"]?/i);
+                if (sm && globalData.meta.studyId === "Not found") globalData.meta.studyId = sm[1];
+
+                // Domain tracking
+                if (cleanLine.includes("transformation for")) {
+                    const dm = cleanLine.match(/for\s+([A-Z0-9_-]+)/i);
+                    if (dm) { currentDomain = dm[1].toUpperCase(); baseline = null; lastKnownCount = null; }
+                }
+                if (cleanLine.includes("blind flow")) flowType = "BLIND";
+                if (cleanLine.includes("real flow")) flowType = "REAL";
+
+                // Record count tracking
+                if (cleanLine.includes("Number of records after")) {
+                    const cMatch = cleanLine.match(/after.*?:\s*(\d+)/i);
+                    if (cMatch) lastKnownCount = parseInt(cMatch[1]);
+                }
+                if (cleanLine.includes("Completed row ops.")) baseline = lastKnownCount;
+                
+                if (currentDomain !== "UNKNOWN" && baseline !== null && cleanLine.includes("Atomic swap completed")) {
+                    const atomicMatch = cleanLine.match(/\((\d+) records\)/i);
+                    if (atomicMatch) {
+                        const finalCount = parseInt(atomicMatch[1]);
+                        if (finalCount !== baseline) globalData.rowMismatches.push(`[${currentDomain} | ${flowType}] Baseline: ${baseline} -> Final: ${finalCount}`);
                     }
                 }
 
-                const sorted = Array.from(uniqueFunctions).sort();
-                resultsArea.value = sorted.join('\n');
-                countText.innerText = `Unique Functions: ${sorted.length}`;
-                statusText.innerText = "Status: Complete";
-                dlBtn.disabled = sorted.length === 0;
-            };
+                // Logic Snapshots
+                if (cleanLine.includes("OTB Function: custom_function")) { isCollecting = true; currentSnapshotBuffer = []; } 
+                if (isCollecting) {
+                    if (cleanLine.includes("Pandas Apply:") || cleanLine.includes("Warning:") || /^\d+\s{2,}/.test(cleanLine)) {
+                        currentSnapshotBuffer.push(line.split(" - INFO - ")[1] || line);
+                    }
+                    if (cleanLine.includes("Custom function") && !cleanLine.includes("OTB")) {
+                        const nameMatch = cleanLine.match(/Custom function\s+([A-Za-z0-9_ ]+)/);
+                        if (nameMatch && currentSnapshotBuffer.length > 0) {
+                            globalData.uniqueFunctions.set(`[${currentDomain}] ${nameMatch[1].trim()}`, currentSnapshotBuffer.join('\n'));
+                        }
+                        isCollecting = false;
+                    }
+                }
 
-            reader.readAsText(file);
-        });
+                // Warnings/Errors
+                if (cleanLine.includes("- WARNING -") && !cleanLine.includes("SettingWithCopy")) {
+                    globalData.warnings.push(`[${currentDomain}] ${cleanLine.split("- WARNING -")[1] || cleanLine}`);
+                }
+                if (cleanLine.includes("- ERROR -")) {
+                    globalData.errors.push(`[${currentDomain}] ${cleanLine.split("- ERROR -")[1] || cleanLine}`);
+                }
+            });
 
-        function download() {
-            const blob = new Blob([resultsArea.value], { type: 'text/plain' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = 'unique_functions.txt';
-            a.click();
-        }
-    </script>
-
+            // Refresh UI
+            document.getElementById('ui-study-id').innerText = globalData.meta.studyId;
+            document.getElementById('ui-engine-type').innerText = globalData.meta.engineType;
+            document.getElementById('dupDisplay').innerText = globalData.rowMismatches.join('\n---\n') || "Integrity Valid.";
+            document.getElementById('warnDisplay').innerText = globalData.warnings.join('\n---\n') || "No warnings.";
+            document.getElementById('errDisplay').innerText = globalData.errors.join('\n---\n') || "No errors.";
+            document.getElementById('funcDisplay').innerText = Array.from(globalData.uniqueFunctions).map(([t, c]) => `${t}\n${c}`).join('\n---\n') || "No snapshots.";
+        };
+        reader.readAsText(file);
+    });
+</script>
 </body>
-
 </html>
